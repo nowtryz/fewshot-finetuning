@@ -23,9 +23,8 @@ conda activate fseft
 conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c conda-forge
 conda install -c menpo wget
 pip install -r requirements.txt
-cd ./pretrain/pretrained_weights/
-wget https://github.com/Project-MONAI/MONAI-extra-test-data/releases/download/0.8.1/swin_unetr.base_5000ep_f48_lr2e-4_pretrained.pt
-cd ../
+mkdir ./pretrain/pretrained_weights
+wget -P ./pretrain/pretrained_weights https://github.com/Project-MONAI/MONAI-extra-test-data/releases/download/0.8.1/swin_unetr.base_5000ep_f48_lr2e-4_pretrained.pt
 ```
 
 ## 📦 Foundation model pretraining
@@ -42,8 +41,10 @@ The foundational model is trained on CT scans, using 29 different anatomical str
 and [CT-org](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=61080890).
 The total 2022 CT scans used for training are indicated in `pretrain/datasets/train.txt`. Foundational model is trained using 4 NVIDIA RTX A600 GPUs, using distributed learning as follows:
 
-```
-CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=0,1,2,3 python -W ignore -m torch.distributed.launch --nproc_per_node=4 --master_port=1234 main_pretrain.py --dist True --num_workers 6 --batch_size 2 --num_samples 3 --max_epoch 1000 --lr 1e-4 --balanced True
+```shell
+CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=0,1,2,3 \
+python -W ignore -m torch.distributed.launch --nproc_per_node=4 --master_port=1234 \
+main_pretrain.py --dist True --num_workers 6 --batch_size 2 --num_samples 3 --max_epoch 1000 --lr 1e-4 --balanced True
 ```
 
 The pretrained model is accesible [here](https://drive.google.com/file/d/18yLNxmWGnVifQNeYYwyyu56Cg4tWV9aW/view?usp=sharing). For usage, please download it and place it in: `fseft/pretrained_weights/pretrained_model.pth`
@@ -54,14 +55,18 @@ The experiments for adaptation of foundational model are performed on [TotalSeg]
 
 You can train the few-shot spatial adapter module as follows:
 
-```
-CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=2,3 python -W ignore -m torch.distributed.launch --nproc_per_node=2 --master_port=1235 main_fseft.py --dist True --num_workers 4 --batch_size 1 --num_samples 6 --k 5 --lr 1e-2 --organ esophagus --epochs 100 --method spatial_adapter --classifier linear --transductive False --scheduler True
+```shell
+CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=2,3 \
+python -W ignore -m torch.distributed.launch --nproc_per_node=2 --master_port=1235 \
+main_fseft.py --dist True --num_workers 4 --batch_size 1 --num_samples 6 --k 5 --lr 1e-2 --organ esophagus --epochs 100 --method spatial_adapter --classifier linear --transductive False --scheduler True
 ```
 
 By using additional resources at test-time, the inference can be performed in a transductive fashion, taking into account anatomical proportion constraints:
 
-```
-CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=0,2 python -W ignore -m torch.distributed.launch --nproc_per_node=2 --master_port=1235 main_fseft.py --dist True --num_workers 4 --batch_size 1 --num_samples 6 --k 10 --lr 1e-2 --organ esophagus --epochs 100 --method spatial_adapter --classifier linear --scheduler True --transductive_inference True --pretrain_epochs 50 --margin 0.3 --lambda_TI 0.1```
+```shell
+CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=0,2 \
+python -W ignore -m torch.distributed.launch --nproc_per_node=2 --master_port=1235 \
+main_fseft.py --dist True --num_workers 4 --batch_size 1 --num_samples 6 --k 10 --lr 1e-2 --organ esophagus --epochs 100 --method spatial_adapter --classifier linear --scheduler True --transductive_inference True --pretrain_epochs 50 --margin 0.3 --lambda_TI 0.1```
 ```
 
 ### **How to perform adaptation to new domains/tasks?**

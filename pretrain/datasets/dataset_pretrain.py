@@ -53,16 +53,15 @@ def get_loader(args):
         ])
 
     # training dict part
-    train_img, train_lbl, train_name = [], [], []
+    data_dicts_train = []
     for iPartition in args.partitions:
         for line in open(args.data_txt_path[iPartition]):
-
-            train_img.append(args.data_root_path + line.strip().split()[0])
-            train_lbl.append(args.data_root_path + line.strip().split()[1])
-            train_name.append(line.strip().split()[1].split('.')[0])
-
-    data_dicts_train = [{'image': image, 'label': label, 'name': name}
-                        for image, label, name in zip(train_img, train_lbl, train_name)]
+            image, label = line.strip().split()
+            data_dicts_train.append({
+                'image': args.data_root_path + image,
+                'label': args.data_root_path + label,
+                'name': label.split('.')[0],
+            })
 
     print('train len {}'.format(len(data_dicts_train)))
 
@@ -73,6 +72,7 @@ def get_loader(args):
 
     train_sampler = DistributedSampler(dataset=train_dataset, even_divisible=True, shuffle=args.shuffle) if args.dist else None
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle,
-                              num_workers=args.num_workers, collate_fn=list_data_collate)
+                              num_workers=args.num_workers, collate_fn=list_data_collate,
+                              sampler=train_sampler)  # FIXME This was missing
 
     return train_loader, train_sampler

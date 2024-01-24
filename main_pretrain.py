@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import argparse
 import os
@@ -27,10 +29,10 @@ def train(args, train_loader, model, optimizer):
 
     loss_dice_ave = 0
     epoch_iterator = tqdm(
-        train_loader, desc="Training (X / X Steps) (loss=X.X)", dynamic_ncols=True
+        train_loader, desc=f'Epoch=0: Training (0 / {len(train_loader):d} Steps) (dice_loss=X.X)', dynamic_ncols=True
     )
     for step, batch in enumerate(epoch_iterator):
-        x, y = batch["image"].to(device).to(torch.float32), batch["label"].to(device).to(torch.float32)
+        x, y = batch["image"].to(device).to(torch.float32), batch["label"].to(device).to(torch.float32)  # TODO to float earlier ?
 
         # Forward
         logit_map = model(x)
@@ -49,8 +51,8 @@ def train(args, train_loader, model, optimizer):
 
         # Display training track
         epoch_iterator.set_description(
-            "Epoch=%d: Training (%d / %d Steps) (dice_loss=%2.5f)" % (
-                args.epoch, step + 1, len(train_loader), dsc_loss.item())
+            f'Epoch={args.epoch:d}: Training ({step + 1:d} / {len(train_loader):d} Steps) '
+            f'(dice_loss={dsc_loss.item():2.5f})'
         )
 
         # Overall losses track
@@ -97,7 +99,7 @@ def process(args):
 
     # Train model
     args.epoch = args.last_epoch
-    while args.epoch < args.max_epoch:
+    while args.epoch <= args.max_epoch:
         if args.dist:
             dist.barrier()
             train_sampler.set_epoch(args.epoch)
@@ -110,9 +112,8 @@ def process(args):
 
             if not os.path.isdir(args.out_path):
                 os.mkdir(args.out_path)
-            torch.save(model.state_dict(),
-                       args.out_path + '/' + 'pretrained_epoch' + str(args.epoch) + '.pth')
-            print('save model success')
+            torch.save(model.state_dict(), args.out_path / f'pretrained_epoch{args.epoch}.pth')
+            print('saved model successfully')
 
         # Update epoch
         args.epoch += 1
@@ -127,9 +128,10 @@ def main():
     parser = argparse.ArgumentParser()
 
     # Folders, dataset, etc.
-    parser.add_argument('--out_path', default='./pretrain/results/', help='The path resume from checkpoint')
+    parser.add_argument('--out_path', default='./pretrain/results/', type=Path, help='The path resume from checkpoint')
     parser.add_argument('--data_root_path', default="./data/", help='data root path')
     parser.add_argument('--stage', default="train", help='train/val')
+    # FIXME partial.txt is not originally present on main branch
     parser.add_argument('--data_txt_path', default={'train': './pretrain/datasets/partial.txt'}, help='data txt path')
     parser.add_argument('--partitions', default=['train'], help='partitions to include in the dataset')
 
