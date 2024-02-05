@@ -44,7 +44,7 @@ The total 2022 CT scans used for training are indicated in `pretrain/datasets/tr
 ```shell
 CUDA_DEVICE_ORDER="PCI_BUS_ID" CUDA_VISIBLE_DEVICES=0,1,2,3 \
 python -W ignore -m torch.distributed.launch --nproc_per_node=4 --master_port=1234 \
-main_pretrain.py --dist True --num_workers 6 --batch_size 2 --num_samples 3 --max_epoch 1000 --lr 1e-4 --balanced True
+main_pretrain.py --dist --num_workers 6 --batch_size 2 --num_samples 3 --max_epoch 1000 --lr 1e-4
 ```
 
 The pretrained model is accesible [here](https://drive.google.com/file/d/18yLNxmWGnVifQNeYYwyyu56Cg4tWV9aW/view?usp=sharing). For usage, please download it and place it in: `fseft/pretrained_weights/pretrained_model.pth`

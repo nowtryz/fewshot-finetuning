@@ -54,16 +54,13 @@ class UniformDataset(Dataset):
         self.dataset_split(data)
 
     def dataset_split(self, data):
-        keys = []
-        for img in data:
-            keys.append(img["name"].split("/")[0])
-
+        keys = [img["name"].split("/")[0] for img in data]
         self.datasetkey = list(np.unique(keys))
 
-        data_dic = {}
-        for iKey in self.datasetkey:
-            data_dic[iKey] = [data[iSample] for iSample in range(len(keys)) if keys[iSample]==iKey]
-        self.data_dic = data_dic
+        self.data_dic = {
+            iKey: [data[iSample] for iSample in range(len(keys)) if keys[iSample]==iKey]
+            for iKey in self.datasetkey
+        }
 
         self.datasetnum = []
         for key, item in self.data_dic.items():
@@ -85,13 +82,13 @@ class UniformDataset(Dataset):
         return self._transform(set_key, data_index)
 
 
-class SelectRelevantKeys():
+class SelectRelevantKeys:
     def __call__(self, data):
         d = {key: data[key] for key in ['image', 'label', 'name']}
         return d
 
 
-class LRDivision():
+class LRDivision:
     def __call__(self, data):
 
         if 'KiTS' in data["name"]:
@@ -139,7 +136,7 @@ class RandZoomd_select(RandZoomd):
         return d
 
 
-class MapLabels():
+class MapLabels:
     def __call__(self, data):
         y = data['label']
         name = data['name']
@@ -192,22 +189,23 @@ class MapLabels():
             return data
 
         try:
-            map_dict = {}
-            for iKey in template.keys():
-                map_dict[template[iKey]] = UNIVERSAL_TEMPLATE[iKey]
+            map_dict = {
+                value: UNIVERSAL_TEMPLATE[iKey]
+                for iKey, value in template.items()
+            }
             map_dict[0] = 0
             y = np.array(np.vectorize(map_dict.get)(y))
 
             annotation_mask = np.array([iKey in template for iKey in UNIVERSAL_TEMPLATE.keys()]).astype(int)
         except:
-            print("WARNING: Error during mapping. Check that all organs are at the universal tamplate.", end='\n')
+            print("WARNING: Error during mapping. Check that all organs are at the universal template.", end='\n')
 
         data['annotation_mask'] = annotation_mask
         data['label'] = y
         return data
 
 
-class CategoricalToOneHot():
+class CategoricalToOneHot:
     def __init__(self, classes):
         self.classes = classes
 

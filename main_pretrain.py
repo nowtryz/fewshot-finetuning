@@ -1,25 +1,25 @@
+import argparse
+import os
 from pathlib import Path
 
 import torch
-import argparse
-import os
 import torch.distributed as dist
-
-from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel
-from pretrain.models.model_pretrain import SwinUNETR
-from utils.models import load_weights
-from utils.scheduler import LinearWarmupCosineAnnealingLR
-from pretrain.datasets.dataset_pretrain import get_loader
+from tqdm import tqdm
+
+from pretrain.datasets.dataset_pretrain import get_loader, preprocess_data
 from pretrain.datasets.utils import UNIVERSAL_TEMPLATE
+from pretrain.models.model_pretrain import SwinUNETR
 from utils.losses import BinaryDice3D
 from utils.misc import set_seeds
+from utils.models import load_weights
+from utils.scheduler import LinearWarmupCosineAnnealingLR
 
 # Check training hardware gpu/cpu
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Set seeds for reproducibility
-set_seeds(42, use_cuda=device is 'cuda')
+set_seeds(42, use_cuda=(device == 'cuda'))
 
 NUM_CLASS = len(UNIVERSAL_TEMPLATE.keys())
 
@@ -27,12 +27,19 @@ NUM_CLASS = len(UNIVERSAL_TEMPLATE.keys())
 def train(args, train_loader, model, optimizer):
     model.train()
 
-    loss_dice_ave = 0
+    loss_dice_ave = torch.zeros(1, device=device)
     epoch_iterator = tqdm(
-        train_loader, desc=f'Epoch=0: Training (0 / {len(train_loader):d} Steps) (dice_loss=X.X)', dynamic_ncols=True
+        train_loader, desc=f'Epoch={args.epoch:d}: Training', dynamic_ncols=True
     )
     for step, batch in enumerate(epoch_iterator):
-        x, y = batch["image"].to(device).to(torch.float32), batch["label"].to(device).to(torch.float32)  # TODO to float earlier ?
+        x, y = batch["image"].to(device).to(torch.float32), batch["label"].to(device).to(torch.float32)
+
+        # Check memory pinning. A batch not pinned will result in slower transfers to GPU
+        # If the batch is not pinned, the loader may need to implement a manual pinning process
+        # See https://pytorch.org/docs/stable/data.html#memory-pinning
+        # See https://pytorch.org/docs/stable/notes/cuda.html#use-pinned-memory-buffers
+        if args.pin_memory:
+            assert batch["image"].is_pinned(), "Batched images must have been pinned by the loader for faster transfer"
 
         # Forward
         logit_map = model(x)
@@ -50,14 +57,18 @@ def train(args, train_loader, model, optimizer):
         optimizer.zero_grad()
 
         # Display training track
-        epoch_iterator.set_description(
-            f'Epoch={args.epoch:d}: Training ({step + 1:d} / {len(train_loader):d} Steps) '
-            f'(dice_loss={dsc_loss.item():2.5f})'
-        )
+        epoch_iterator.set_postfix_str(f'dice_loss={dsc_loss.item():2.5f}')
 
         # Overall losses track
-        loss_dice_ave += dsc_loss.item()
+        loss_dice_ave += dsc_loss.detach()
         torch.cuda.empty_cache()
+
+    if args.dist:
+        # Sums loss value from all nodes
+        dist.all_reduce(loss_dice_ave)
+        loss_dice_ave /= dist.get_world_size()
+
+    loss_dice_ave = loss_dice_ave.item()
 
     # Display epoch-wise loss
     print('Epoch=%d: ave_dice_loss=%2.5f' % (args.epoch, loss_dice_ave / len(epoch_iterator)))
@@ -67,7 +78,7 @@ def train(args, train_loader, model, optimizer):
 
 def process(args):
     args.NUM_CLASS = NUM_CLASS
-    # Set enviroment for distributed learning
+    # Set environment for distributed learning
     rank = 0
 
     if args.dist:
@@ -95,13 +106,17 @@ def process(args):
                                               warmup_start_lr=args.lr/args.warmup_epoch)
 
     # Set datasets
+    if not args.use_cache:
+        if rank == 0:
+            preprocess_data(args)  # Preprocess data on main node
+        if args.dist:
+            dist.barrier()  # Wait for dataset to have been preprocessed by the main node
     train_loader, train_sampler = get_loader(args)
 
     # Train model
     args.epoch = args.last_epoch
-    while args.epoch <= args.max_epoch:
+    while args.epoch <= args.max_epoch:  # <= because indices start at 1
         if args.dist:
-            dist.barrier()
             train_sampler.set_epoch(args.epoch)
 
         # Train epoch
@@ -129,11 +144,14 @@ def main():
 
     # Folders, dataset, etc.
     parser.add_argument('--out_path', default='./pretrain/results/', type=Path, help='The path resume from checkpoint')
-    parser.add_argument('--data_root_path', default="./data/", help='data root path')
+    parser.add_argument('--data_root_path', default="./data/", type=Path, help='data root path')
     parser.add_argument('--stage', default="train", help='train/val')
     # FIXME partial.txt is not originally present on main branch
     parser.add_argument('--data_txt_path', default={'train': './pretrain/datasets/partial.txt'}, help='data txt path')
     parser.add_argument('--partitions', default=['train'], help='partitions to include in the dataset')
+    parser.add_argument('--preprocessed-output', default='./data/preprocessed-data', type=Path,
+                        help='Locations to store cached preprocessed images and labels')
+    parser.add_argument('--use-cache', action='store_true', help='Use previously preprocessed images')
 
     # Training options
     parser.add_argument('--max_epoch', default=800, type=int, help='Number of training epoches')
@@ -144,15 +162,16 @@ def main():
     parser.add_argument('--classifier', default='linear', help='type of classifier')
     parser.add_argument('--text_controller_type', default='word', help='type of text controller')
     parser.add_argument('--batch_size', default=2, type=int, help='batch size')
-    parser.add_argument('--balanced', default=True, type=lambda x: (str(x).lower() == 'true'))
-    parser.add_argument('--shuffle', default=True, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--unbalanced', action='store_false', dest='balanced')  # balanced defaults to True
+    parser.add_argument('--no-shuffle', action='store_false', dest='shuffle')  # shuffle defaults to True
     parser.add_argument('--num_samples', default=1, type=int, help='sample number in each ct')
     parser.add_argument('--pretrained_model', default='./pretrain/pretrained_weights/swin_unetr.base_5000ep_f48_lr2e-4_pretrained.pt',
                         help='The path of pretrain model')
 
     # Resources
-    parser.add_argument('--dist', dest='dist', type=bool, default=False,
-                        help='distributed training or not')
+    parser.add_argument('--no-pin-memory', action='store_false', dest='pin_memory',
+                        help='Avoid copying Tensors into GPU pinned memory before transferring them')
+    parser.add_argument('--dist', action='store_true', help='distributed training or not')
     parser.add_argument("--local_rank", type=int)
     parser.add_argument("--device")
     parser.add_argument('--num_workers', default=1, type=int, help='workers number for DataLoader')
@@ -175,7 +194,6 @@ def main():
     parser.add_argument('--last_epoch', default=1, type=int)
 
     args, unknown = parser.parse_known_args()
-
     process(args=args)
 
 
