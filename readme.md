@@ -1,4 +1,4 @@
-# Few-Shot Efficient Fine-Tuning
+conda install python=$pythonversion$# Few-Shot Efficient Fine-Tuning
 
 With the recent raise of foundation models in computer vision and NLP, the *pretrain-and-adapt* strategy, where a large-scale model is fine-tuned on downstream tasks, is gaining popularity.
 However, traditional fine-tuning approaches may still require significant resources and yield sub-optimal results when the labeled data of the target task is scarce.
@@ -15,12 +15,13 @@ This repository contains a framework for building novel adapters and few-shots l
 [paper](https://arxiv.org/abs/2303.17051) | [code](https://github.com/jusiro/fewshot-finetuning) |
 
 ## 💡 Preparation
-Create enviroment, clone repository and install required packages (check compatibility with your cuda version).
+Create environment, clone repository and install required packages (check compatibility with your cuda version).
 
 ```
-conda create -n fseft python=3.8 -y
+conda update -n base -c defaults conda
+conda create -n fseft python=3.11 -y
 conda activate fseft
-conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c conda-forge
+conda install pytorch~=2.2.0 torchvision~=0.17.0 pytorch-cuda=11.8 -c pytorch -c nvidia
 conda install -c menpo wget
 pip install -r requirements.txt
 mkdir ./pretrain/pretrained_weights

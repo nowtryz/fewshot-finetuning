@@ -1,5 +1,7 @@
 import torch
 
+from pretrain.models.model_pretrain import SwinUNETR
+
 
 def load_weights(model, weights_path, classifier=False):
     print('Use pretrained weights')
@@ -31,3 +33,7 @@ def load_weights(model, weights_path, classifier=False):
 
     return model
 
+def default_model(args, num_classes):
+    return SwinUNETR(img_size=(args.roi_x, args.roi_y, args.roi_z), in_channels=1, out_channels=num_classes,
+                        feature_size=48, drop_rate=0.0, attn_drop_rate=0.0, dropout_path_rate=0.0,
+                        use_checkpoint=False)

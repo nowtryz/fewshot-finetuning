@@ -1,7 +1,7 @@
 import torch
 
 from pretrain.models.model_pretrain import SwinUNETR
-from pretrain.datasets.utils import UNIVERSAL_TEMPLATE
+from pretrain.datasets.transforms import UNIVERSAL_TEMPLATE
 from fseft.models.adapters import SpatialAdapter, LinearProbe, Prototype
 from utils.models import load_weights
 

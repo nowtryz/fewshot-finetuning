@@ -3,10 +3,10 @@ import warnings
 import torch
 
 from typing import List
-from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.lr_scheduler import LRScheduler
 
 
-class LinearWarmupCosineAnnealingLR(_LRScheduler):
+class LinearWarmupCosineAnnealingLR(LRScheduler):
 
     def __init__(
         self,

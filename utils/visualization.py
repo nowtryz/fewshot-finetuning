@@ -1,6 +1,5 @@
-import numpy as np
-from PIL import Image
 import cv2
+import numpy as np
 
 
 def visualize_prediction(im, y, yhat, path_out):

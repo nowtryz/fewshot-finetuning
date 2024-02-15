@@ -3,9 +3,9 @@ import torch
 
 from monai.transforms import (AddChanneld, Compose, CropForegroundd, Orientationd, RandShiftIntensityd,
                               ScaleIntensityRanged, Spacingd, ToTensord, SpatialPadd, LoadImaged,
-                              RandCropByPosNegLabeld)
+                              RandCropByPosNegLabeld, SelectItemsd)
 from monai.data import DataLoader, Dataset, DistributedSampler, list_data_collate
-from pretrain.datasets.utils import CategoricalToOneHot, SelectRelevantKeys
+from pretrain.datasets.transforms import CategoricalToOneHot
 from fseft.datasets.utils import load_query
 from utils.misc import seed_worker
 
@@ -26,7 +26,7 @@ def get_loader(args):
                                spatial_size=(args.roi_x, args.roi_y, args.roi_z), pos=1, neg=1,
                                num_samples=args.num_samples, image_key="image", image_threshold=0),
         RandShiftIntensityd(keys=["image"], offsets=0.10, prob=0.20),
-        SelectRelevantKeys(),
+        SelectItemsd(keys=['image', 'label', 'name']),
         ToTensord(keys=["image", "label"]),
         CategoricalToOneHot(2),  # Foreground/Background
     ])

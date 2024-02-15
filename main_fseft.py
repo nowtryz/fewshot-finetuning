@@ -15,8 +15,8 @@ from utils.losses import BinaryDice3D
 from utils.metrics import dice_score, extract_topk_largest_candidates
 from utils.misc import set_seeds
 from utils.scheduler import LinearWarmupCosineAnnealingLR
+from utils.templates import UNIVERSAL_TEMPLATE
 from utils.visualization import visualize_prediction
-from pretrain.datasets.utils import UNIVERSAL_TEMPLATE
 
 # Check training hardware gpu/cpu
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

@@ -2,10 +2,12 @@ import torch
 
 
 class BinaryDice3D(torch.nn.Module):
+    smooth: torch.Tensor
+
     def __init__(self, reduction='mean'):
-        super(BinaryDice3D, self).__init__()
+        super().__init__()
         self.reduction = reduction
-        self.smooth = 1
+        self.register_buffer('smooth', torch.as_tensor(1))
 
     def forward(self, predict, target, annotation_mask=None):
         num = torch.sum(predict*target, (2, 3, 4))
