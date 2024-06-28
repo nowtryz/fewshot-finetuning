@@ -19,6 +19,10 @@ def data_directory(request):
 @pytest.fixture
 def atlas_label_1(data_directory) -> MetaTensor:
     path = data_directory / 'data/01_Multi-Atlas_Labeling/label/label0001.nii.gz'
+
+    if not path.exists():
+        pytest.xfail(f'Path {path} does not exist, this test requires access to the data directory')
+
     loader = LoadImage(image_only=True)
     return loader(path)
 
@@ -28,7 +32,7 @@ def test_degrade_to_bounding_boxes(atlas_label_1):
     degrade = DegradeToBoundingBoxes()
     box_to_one_hot = BoundingBoxesToOneHot(sparse=True)
 
-    label = F.one_hot(label.as_tensor().long()).permute((-1, 0, 1, 2))
+    label = F.one_hot(label.long()).permute((-1, 0, 1, 2))
     label_bb = degrade(label)
 
     assert label_bb.size() == label.size()

@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+filterwarnings = [
+    # Disable warnings due to the use of torch.autograd.detect_anomaly
+    'ignore:Anomaly Detection has been enabled.*:UserWarning',
+    # Detect Monai's deprecation warnings
+    'ignore::DeprecationWarning:monai.utils.module',
+    'ignore:the load_module\(\) method is deprecated:DeprecationWarning',
+]

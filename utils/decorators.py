@@ -1,13 +1,16 @@
 import functools
 import inspect
-from typing import Callable
+from typing import Callable, ParamSpec
 
 import numpy as np
 import torch
 from monai.data import MetaTensor
 
 
-def wrap_ndarray_in_tensor(function: Callable[[np.ndarray], np.ndarray]) -> Callable[[torch.Tensor], torch.Tensor]:
+P = ParamSpec('P')
+
+
+def wrap_ndarray_in_tensor(function: Callable[P, np.ndarray]) -> Callable[P, torch.Tensor]:
     """
     Decorator that converts a Tensor given as function's input to a numpy nd-array and converts the result from the
     function back to a tensor. Basically wraps a numpy function to its pytorch equivalent.
@@ -15,25 +18,28 @@ def wrap_ndarray_in_tensor(function: Callable[[np.ndarray], np.ndarray]) -> Call
     :param function: Function to wrap
     """
     @functools.wraps(function)
-    def wrapper(input_: torch.Tensor) -> torch.Tensor:
-        result = function(input_.numpy())
+    def wrapper(*args, **kwargs) -> torch.Tensor:
+        args = [arg.numpy() if isinstance(arg, torch.Tensor) else arg for arg in args]
+        kwargs = {key: arg.numpy() if isinstance(arg, torch.Tensor) else arg for key, arg in kwargs.items()}
+        result = function(*args, **kwargs)
         return torch.as_tensor(result)
 
     return wrapper
 
 
-def auto_repr(class_: type) -> type:
+def auto_repr(cls: type) -> type:
     """
     Auto generates the ``__repr__`` on the decorated class.
 
-    :param class_: Class to be decorated.
+    :param cls: Class to be decorated.
     """
-    def __repr__(self):
-        params = (f'{k}={v!r}' for k, v in self.__dict__.items() if not k.startswith('_'))
-        return f"{self.__class__.__name__}({', '.join(params)})"
+    if not hasattr(cls, '__repr__'):
+        def __repr__(self):
+            params = (f'{k}={v!r}' for k, v in self.__dict__.items() if not k.startswith('_'))
+            return f"{self.__class__.__name__}({', '.join(params)})"
 
-    class_.__repr__ = __repr__
-    return class_
+        cls.__repr__ = __repr__
+    return cls
 
 
 def preserves_meta(key: str):

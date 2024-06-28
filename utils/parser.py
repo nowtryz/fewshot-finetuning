@@ -21,21 +21,41 @@ class FloatRangeAction(argparse.Action):
         setattr(namespace, self.dest, value)
 
 
-def make_main_parser():
-    parser = argparse.ArgumentParser()
-
-    # Folders, dataset, etc.
+def register_folder_arguments(parser: argparse.ArgumentParser, allow_cache=True):
+    """Folders, dataset, etc."""
     parser.add_argument('--out-path', default='./pretrain/results/', type=Path, help='The path resume from checkpoint')
     parser.add_argument('--data-root-path', default="./data/", type=Path, help='data root path')
     parser.add_argument('--stage', default="train", help='train/val')
     parser.add_argument('--data-txt-path', default='./pretrain/datasets/train.txt', help='data txt path')
     parser.add_argument('--preprocessed-output', default='./data/preprocessed-data', type=Path,
                         help='Locations to store cached preprocessed images and labels')
-    parser.add_argument('--use-cache', action='store_true', help='Use previously preprocessed images')
-    parser.add_argument('--preprocess-only', action='store_true', help="Don't train, and only perform the "
-                                                                       "preprocessing")
+
+    if allow_cache:
+        parser.add_argument('--use-cache', action='store_true', help='Use previously preprocessed images')
+        parser.add_argument('--preprocess-only', action='store_true', help="Don't train, and only perform the "
+                                                                           "preprocessing")
+
+
+def register_preprocessing_arguments(parser: argparse.ArgumentParser):
+    """Volume pre-processing"""
     parser.add_argument('--max-preprocessor', type=int, default=-1, help='Number of cores to use for preprocessing,'
                                                                          ' -1 to use as many as available')
+    parser.add_argument('--a_min', default=-175, type=float, help='a_min in ScaleIntensityRanged')
+    parser.add_argument('--a_max', default=250, type=float, help='a_max in ScaleIntensityRanged')
+    parser.add_argument('--b_min', default=0.0, type=float, help='b_min in ScaleIntensityRanged')
+    parser.add_argument('--b_max', default=1.0, type=float, help='b_max in ScaleIntensityRanged')
+    parser.add_argument('--space_x', default=1.5, type=float, help='spacing in x direction')
+    parser.add_argument('--space_y', default=1.5, type=float, help='spacing in y direction')
+    parser.add_argument('--space_z', default=1.5, type=float, help='spacing in z direction')
+    parser.add_argument('--roi_x', default=96, type=int, help='Size of the cropped ROI in x direction')
+    parser.add_argument('--roi_y', default=96, type=int, help='Size of the cropped ROI in y direction')
+    parser.add_argument('--roi_z', default=96, type=int, help='Size of the cropped ROI in z direction')
+
+
+def make_main_parser():
+    parser = argparse.ArgumentParser()
+    register_folder_arguments(parser)
+    register_preprocessing_arguments(parser)
 
     # Training options
     parser.add_argument('--max-epoch', default=800, type=int, help='Number of training epochs')
@@ -64,18 +84,6 @@ def make_main_parser():
     parser.add_argument("--device")
     parser.add_argument('--num-workers', default=1, type=int, help='workers number for DataLoader')
     parser.add_argument('--disable-comet', action='store_true', help='Disable the comet logger for this run')
-
-    # Volume pre-processing
-    parser.add_argument('--a_min', default=-175, type=float, help='a_min in ScaleIntensityRanged')
-    parser.add_argument('--a_max', default=250, type=float, help='a_max in ScaleIntensityRanged')
-    parser.add_argument('--b_min', default=0.0, type=float, help='b_min in ScaleIntensityRanged')
-    parser.add_argument('--b_max', default=1.0, type=float, help='b_max in ScaleIntensityRanged')
-    parser.add_argument('--space_x', default=1.5, type=float, help='spacing in x direction')
-    parser.add_argument('--space_y', default=1.5, type=float, help='spacing in y direction')
-    parser.add_argument('--space_z', default=1.5, type=float, help='spacing in z direction')
-    parser.add_argument('--roi_x', default=96, type=int, help='Size of the cropped ROI in x direction')
-    parser.add_argument('--roi_y', default=96, type=int, help='Size of the cropped ROI in y direction')
-    parser.add_argument('--roi_z', default=96, type=int, help='Size of the cropped ROI in z direction')
 
     # Resume training options
     parser.add_argument('--resume', default=False, type=lambda x: (str(x).lower() == 'true'))

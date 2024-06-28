@@ -1,5 +1,6 @@
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import cpu_count
+from os import PathLike
 from pathlib import Path
 
 import ignite
@@ -11,25 +12,26 @@ from torch.utils.data import random_split
 from tqdm import tqdm
 
 
-def get_train_data(args, root: Path):
+def get_train_data(data_txt_path: str | PathLike[str], root: Path):
     # training dict part
     data_dicts_train = []
-    for line in open(args.data_txt_path):
-        image, label = line.strip().split()
-        name = label.split('.')[0]
-        data_dicts_train.append({
-            'image': root / image,
-            'label': root / label,
-            'name': name,
-            'bounding_box': root / f'{name}_bounding-boxes.nii.gz'  # Just for bounding box experiments
-        })
+    with open(data_txt_path) as f:
+        for line in f:
+            image, label = line.strip().split()
+            name = label.split('.')[0]
+            data_dicts_train.append({
+                'image': root / image,
+                'label': root / label,
+                'name': name,
+                'bounding_box': root / f'{name}_bounding-boxes.nii.gz'  # Just for bounding box experiments
+            })
 
     return data_dicts_train
 
 
 @one_rank_only(with_barrier=True)
 def preprocess_data(args, base_transform):
-    data = get_train_data(args, args.data_root_path)
+    data = get_train_data(args.data_txt_path, args.data_root_path)
 
     print(f'train len {len(data)}')
 
@@ -59,7 +61,7 @@ def _make_loader(args, data, transforms, collate_fn, batch_size):
 
 
 def get_loader(args, transforms, val_transforms, collate_fn=None):
-    data_dicts_train = get_train_data(args, args.preprocessed_output)
+    data_dicts_train = get_train_data(args.data_txt_path, args.preprocessed_output)
     train_data, val_data = random_split(
         Dataset(data_dicts_train),
         [args.train_val_split, 1 - args.train_val_split]

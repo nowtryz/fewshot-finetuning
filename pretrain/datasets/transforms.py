@@ -7,6 +7,12 @@ from utils.templates import get_template_for_name, Template
 
 
 class LRDivision(Transform, ThreadUnsafe):
+    REPLACEMENTS = [
+        # right key -> left key
+        ('rkidney', 'lkidney'),
+        ('rlung', 'llung'),
+    ]
+
     def __init__(self, template_key='template', image_key='image', label_key='label'):
         self.template_key = template_key
         self.image_key = image_key
@@ -14,22 +20,13 @@ class LRDivision(Transform, ThreadUnsafe):
 
     def __call__(self, data):
         template: Template = data[self.template_key]
-
-        if 'rkidney' in template or 'rlung' in template:
+        if any(right_key in template for right_key, _ in self.REPLACEMENTS):
             center_orig = np.array(data[self.image_key].shape) // 2
 
-            if 'rkidney' in template:
-
-                # rkidney --> lkidney
-                mask = data[self.label_key][:, :center_orig[1], :, :] == template['rkidney']
-                data[self.label_key][:, :center_orig[1], :, :][mask] = template['lkidney']
-
-            if 'rlung' in template:
-                center_orig = np.array(data["image"].shape) // 2
-
-                # rlung --> llung
-                mask = data[self.label_key][:, :center_orig[1], :, :] == template['rlung']
-                data[self.label_key][:, :center_orig[1], :, :][mask] = template['llung']
+            for right_key, left_key in self.REPLACEMENTS:
+                if right_key in template:
+                    mask = data[self.label_key][:, :center_orig[1], :, :] == template[right_key]
+                    data[self.label_key][:, :center_orig[1], :, :][mask] = template[left_key]
 
         return data
 
@@ -67,7 +64,7 @@ class MapLabels:
         template: Template = data['template']
 
         try:
-            y = template(y)
+            y = template.to_universal_indexing(y)
         except Exception:  # noqa
             raise ValueError("WARNING: Error during mapping. Check that all organs are at the universal template.")
 

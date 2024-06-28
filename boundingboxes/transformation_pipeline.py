@@ -2,29 +2,28 @@ import torch
 from monai.transforms import (Compose, CropForegroundd, Orientationd, RandShiftIntensityd,
                               ScaleIntensityRanged, Spacingd, RandRotate90d, ToTensord, SpatialPadd, LoadImaged,
                               RandCropByPosNegLabeld, SaveImaged, SelectItemsd, CopyItemsd, DeleteItemsd,
-                              EnsureChannelFirstd, EnsureChannelFirstD)
+                              EnsureChannelFirstd)
 
-from .transforms import (OriginalDimToUniversalDim, CategoricalToOneHotDynamic,
-                         AsDictionaryTransform, DegradeToBoundingBoxes, BoundingBoxesToOneHot)
 from pretrain.datasets.transforms import (CategoricalToOneHot, MapLabels, LRDivision,
                                           RandZoomd_select, MatchTemplate, GetAnnotationMask)
 from utils.templates import NUM_CLASSES
+from .transforms import (OriginalDimToUniversalDim, CategoricalToOneHotDynamic,
+                         AsDictionaryTransform, DegradeToBoundingBoxes, BoundingBoxesToOneHot, DegradeToBoundingBoxesD)
 
 
 def make_bb_preprocessing_transforms(args):
     return Compose([
-        LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstD(keys=["image", "label"]),
+        LoadImaged(keys=["image", "label"], ensure_channel_first=True),
         MatchTemplate(destination_key="template"),  # Match dataset to according template
+        Orientationd(keys=["image", "label"], axcodes="RAS"),  # Enforce orientation to correctly separate Left/Right
         LRDivision(template_key="template", image_key="image", label_key="label"),  # Separate left and right organs
         DeleteItemsd("bounding_box"),  # "bounding_box" is already present, containing its storing location
-        CopyItemsd(keys=["label", "label_meta_dict"],
-                   names=["bounding_box", "bounding_box_meta_dict"]),  # Copy label to a new key
+        CopyItemsd(keys=["label"],
+                   names=["bounding_box"]),  # Copy label to a new key
         CategoricalToOneHotDynamic(template_key="template", label_key="bounding_box"),  # Convert copied key to one hot
-        AsDictionaryTransform(DegradeToBoundingBoxes(),  # Degrade copied label to bounding boxes
-                              keys=["bounding_box"]),
+        # Degrade copied label to bounding boxes
+        DegradeToBoundingBoxesD(keys=["bounding_box"], template_key="template"),
         MapLabels(),  # Map original datasets labels to universal label (using 'template', affects 'label')
-        Orientationd(keys=["image", "label", "bounding_box"], axcodes="RAS"),
         Spacingd(keys=["image", "label", "bounding_box"], pixdim=(args.space_x, args.space_y, args.space_z),
                  mode=("bilinear", "nearest", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max,

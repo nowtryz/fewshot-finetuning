@@ -12,10 +12,6 @@ from boundingboxes.losses import LogBarrierPenalty, InequalityL2Penalty, Outside
 # ============
 
 pytestmark = [
-    # Disable warnings due to the use of torch.autograd.detect_anomaly
-    pytest.mark.filterwarnings("ignore:Anomaly Detection has been enabled.*:UserWarning"),
-    # Detect Monai's deprecation warnings
-    pytest.mark.filterwarnings("ignore::DeprecationWarning:monai.utils.module"),
     # Remove masked tensor warnings
     pytest.mark.filterwarnings("ignore:The PyTorch API of MaskedTensors is in prototype stage:UserWarning"),
     pytest.mark.filterwarnings("ignore:It is not recommended to create a MaskedTensor with a tensor that requires_grad"
