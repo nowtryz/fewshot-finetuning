@@ -4,12 +4,46 @@ from typing import Mapping, Hashable, Dict, Callable
 import numpy as np
 import torch
 from monai.config import KeysCollection
+from monai.data import MetaTensor
 from monai.transforms import MapTransform, apply_transform
 from scipy import ndimage
 from torch.nn import functional as F  # noqa
 
 from utils.decorators import wrap_ndarray_in_tensor, auto_repr, preserves_meta
 from utils.templates import Template
+
+
+class BoundingBoxWaring(UserWarning):
+    """
+    Base class for warnings regarding the computation of bounding boxes
+    :param filename: Label file containing the segmentation for which the warning is issued
+    :param class_index: Index of the class from the label for which the warning is issued
+    """
+    def __init__(self, filename, class_index):
+        self.filename = filename
+        self.class_index = class_index
+
+
+class BoundingBoxDiscardedWarning(BoundingBoxWaring):
+    """
+    Warning issued when a segmentation contains multiple components (connected components) for the same class that are
+    overlapping but with one being the subset of the other.
+    In this case, the smaller box is discarded but this may comme from an error in the input label.
+    """
+    def __str__(self):
+        return ('Bounding box discarded as included in a bigger one for class. '
+                f'(In {self.filename} at class index {self.class_index}.')
+
+
+class BoundingBoxOverlapWarning(BoundingBoxWaring):
+    """
+    Warning issued when multiple bounding boxes for different connected components of the same class are overlapping and
+    information is lost because only one box can be stored per class for each voxel. The data structured chosen enables
+    it to be passed through 3D transforms as if it was a normal multiple-channeled 3D Tensor.
+    """
+    def __str__(self):
+        return ('Mask will contain overlapping bounding boxes. '
+                f'(In {self.filename} at class index {self.class_index}.')
 
 
 @auto_repr
@@ -25,7 +59,7 @@ class DegradeToBoundingBoxes:
         self.has_background = has_background
 
     @preserves_meta(key='volume')
-    def __call__(self, volume: torch.Tensor) -> torch.Tensor:
+    def __call__(self, volume: MetaTensor) -> torch.Tensor:
         """
         Use connected components to compute 3D bounding boxes from the ground truth then store in a tensor of shape
         ``Classes x Dims...`` with a different number for each component.
@@ -37,18 +71,18 @@ class DegradeToBoundingBoxes:
 
         if self.has_background:
             return torch.stack([torch.zeros_like(classes[0])] + [
-                self._3d_segmentation_to_bounding_boxes(class_)
-                for class_ in classes[1:]
+                self._3d_segmentation_to_bounding_boxes(mask, idx + 1, volume.meta.get('filename_or_obj'))
+                for idx, mask in enumerate(classes[1:])
             ])
 
         return torch.stack([
-            self._3d_segmentation_to_bounding_boxes(class_)
-            for class_ in classes
+            self._3d_segmentation_to_bounding_boxes(mask, idx, volume.meta.get('filename_or_obj'))
+            for idx, mask in enumerate(classes)
         ])
 
     @staticmethod
     @wrap_ndarray_in_tensor
-    def _3d_segmentation_to_bounding_boxes(segmentation_mask: np.ndarray) -> np.ndarray:
+    def _3d_segmentation_to_bounding_boxes(segmentation_mask: np.ndarray, class_idx: int, filename: str) -> np.ndarray:
         """W x H x D -> W x H x D"""
         if not np.any(segmentation_mask):
             return np.zeros(segmentation_mask.shape)
@@ -56,12 +90,32 @@ class DegradeToBoundingBoxes:
         # Run scipy nd-image's connected components algorithm
         labels, num_features = ndimage.label(segmentation_mask)
         objects = ndimage.find_objects(labels)
-        result = np.zeros(segmentation_mask.shape)
+        result = np.zeros(segmentation_mask.shape, dtype=np.integer)
 
         for component, slices in enumerate(objects):
             # Only check overlapping components when python is not in optimized mode (-O flag)
-            if __debug__ and np.any(result[slices]):
-                warnings.warn("Mask will contain overlapping bounding boxes", RuntimeWarning)
+            if np.any(result[slices]):
+                # Overlapping boxes detected, trying to merge them if one is inside the other
+                u = np.unique(result[slices])
+
+                if u.size == 1:
+                    # Discarding current boxe as included in a bigger box
+                    warnings.warn(BoundingBoxDiscardedWarning(filename, class_idx))
+                    continue
+
+                if u.size == 2 and u[0] == 0:
+                    # There is only one box inside the current one, let's check if the current one is bigger than the
+                    # previous one
+                    previous_component = u[1] - 1
+                    previous_slices = objects[previous_component]
+                    if np.unique(result[previous_slices]).size == 1:
+                        # Current box is bigger and fully includes the previous one, filling current box with the index
+                        # from the previous component
+                        result[slices] = previous_component
+                        warnings.warn(BoundingBoxDiscardedWarning(filename, class_idx))
+                        continue
+
+                warnings.warn(BoundingBoxOverlapWarning(filename, class_idx))
 
             result[slices] = component + 1
 

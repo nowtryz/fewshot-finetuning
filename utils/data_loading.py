@@ -14,15 +14,16 @@ from tqdm import tqdm
 def get_train_data(args, root: Path):
     # training dict part
     data_dicts_train = []
-    for line in open(args.data_txt_path):
-        image, label = line.strip().split()
-        name = label.split('.')[0]
-        data_dicts_train.append({
-            'image': root / image,
-            'label': root / label,
-            'name': name,
-            'bounding_box': root / f'{name}_bounding-boxes.nii.gz'  # Just for bounding box experiments
-        })
+    with open(args.data_txt_path) as f:
+        for line in f:
+            image, label = line.strip().split()
+            name = label.split('.')[0]
+            data_dicts_train.append({
+                'image': root / image,
+                'label': root / label,
+                'name': name,
+                'bounding_box': root / f'{name}_bounding-boxes.nii.gz'  # Just for bounding box experiments
+            })
 
     return data_dicts_train
 

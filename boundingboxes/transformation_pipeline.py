@@ -13,13 +13,12 @@ from utils.templates import NUM_CLASSES
 
 def make_bb_preprocessing_transforms(args):
     return Compose([
-        LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstD(keys=["image", "label"]),
+        LoadImaged(keys=["image", "label"], ensure_channel_first=True),
         MatchTemplate(destination_key="template"),  # Match dataset to according template
         LRDivision(template_key="template", image_key="image", label_key="label"),  # Separate left and right organs
         DeleteItemsd("bounding_box"),  # "bounding_box" is already present, containing its storing location
-        CopyItemsd(keys=["label", "label_meta_dict"],
-                   names=["bounding_box", "bounding_box_meta_dict"]),  # Copy label to a new key
+        CopyItemsd(keys=["label"],
+                   names=["bounding_box"]),  # Copy label to a new key
         CategoricalToOneHotDynamic(template_key="template", label_key="bounding_box"),  # Convert copied key to one hot
         AsDictionaryTransform(DegradeToBoundingBoxes(),  # Degrade copied label to bounding boxes
                               keys=["bounding_box"]),

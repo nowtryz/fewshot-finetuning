@@ -15,16 +15,16 @@ NUM_CLASSES = np.max(np.fromiter(UNIVERSAL_TEMPLATE.values(), dtype=int)) + 1
 
 
 class Template(UserDict):
-    def __init__(self, original_mapping: Dict[str, int]):
-        super().__init__(original_mapping)
-        self.num_classes = max(original_mapping.values()) + 1
+    def __init__(self, *class_labels: str):
+        super().__init__({label: idx + 1 for idx, label in enumerate(class_labels)})
+        self.num_classes = len(class_labels) + 1
 
         # Build indices: allow converting original indices to universal indices with advanced indexing
         # -1 in the reversed index is used to yield an empty class, as the background will be filled with some values
         self._mapping_index = np.zeros(self.num_classes)  # use to convert categorical labels
         self._reverse_index = -np.ones(NUM_CLASSES)  # use to convert one-matrices
         self._reverse_index[0] = 0  # Match backgrounds
-        for category, original_idx in original_mapping.items():
+        for category, original_idx in self.items():
             universal_idx = UNIVERSAL_TEMPLATE[category]
             self._reverse_index[universal_idx] = original_idx
             self._mapping_index[original_idx] = universal_idx
@@ -51,111 +51,111 @@ class Template(UserDict):
 
 
 # 01. BTCV (Multi-atlas)
-BTCV_TEMPLATE = Template({
-    'spleen': 1,
-    'rkidney': 2,
-    'lkidney': 3,
-    'gall': 4,
-    'esophagus': 5,
-    'liver': 6,
-    'stomach': 7,
-    'aorta': 8,
-    'postcava': 9,
-    'psv': 10,
-    'pancreas': 11,
-    'radrenal': 12,
-    'ladrenal': 13
-})
+BTCV_TEMPLATE = Template(
+    'spleen',
+    'rkidney',
+    'lkidney',
+    'gall',
+    'esophagus',
+    'liver',
+    'stomach',
+    'aorta',
+    'postcava',
+    'psv',
+    'pancreas',
+    'radrenal',
+    'ladrenal'
+)
 # 03_CHAOS
-CHAOS_TEMPLATE = Template({
-    'liver': 1
-})
+CHAOS_TEMPLATE = Template(
+    'liver'
+)
 # 04_LiTS
-LiTS_TEMPLATE = Template({
-    'liver': 1,
-    'liver_tumor': 2
-})
+LiTS_TEMPLATE = Template(
+    'liver',
+    'liver_tumor'
+)
 # 05_KiTS
-KiTS_TEMPLATE = Template({
-    'rkidney': 1,
-    'kidney_tumor': 2,
-    'kidney_cyst': 3,
-    'lkidney': 51
-})
+KiTS_TEMPLATE = Template(
+    'rkidney',
+    'kidney_tumor',
+    'kidney_cyst',
+    'lkidney'
+)
 # 08_AbdomenCT-1K
-AbdomenCT1K_TEMPLATE = Template({
-    'liver': 1,
-    'rkidney': 2,
-    'spleen': 3,
-    'pancreas': 4,
-    'lkidney': 52
-})
+AbdomenCT1K_TEMPLATE = Template(
+    'liver',
+    'rkidney',
+    'spleen',
+    'pancreas',
+    'lkidney'
+)
 # 09_AMOS
-AMOS_TEMPLATE = Template({
-    'spleen': 1,
-    'rkidney': 2,
-    'lkidney': 3,
-    'gall': 4,
-    'esophagus': 5,
-    'liver': 6,
-    'stomach': 7,
-    'aorta': 8,
-    'postcava': 9,
-    'pancreas': 10,
-    'radrenal': 11,
-    'ladrenal': 12,
-    'duodenum': 13,
-    'bladder': 14,
-    'prost_ut': 15
-})
+AMOS_TEMPLATE = Template(
+    'spleen',
+    'rkidney',
+    'lkidney',
+    'gall',
+    'esophagus',
+    'liver',
+    'stomach',
+    'aorta',
+    'postcava',
+    'pancreas',
+    'radrenal',
+    'ladrenal',
+    'duodenum',
+    'bladder',
+    'prost_ut'
+)
 # 10_Task03_Liver
-DEC_Task03_Liver_TEMPLATE = Template({
-    'liver': 1,
-    'liver_tumor': 2
-})
+DEC_Task03_Liver_TEMPLATE = Template(
+    'liver',
+    'liver_tumor'
+)
 # 10_Task06_Lung
-DEC_Task06_Lung_TEMPLATE = Template({'lung_tumor': 1})
+DEC_Task06_Lung_TEMPLATE = Template('lung_tumor')
 # 10_Task07_Pancreas
-DEC_Task07_Pancreas_TEMPLATE = Template({
-    'pancreas': 1,
-    'pancreas_tumor': 2
-})
+DEC_Task07_Pancreas_TEMPLATE = Template(
+    'pancreas',
+    'pancreas_tumor'
+)
 # 10_Task08_HepaticVessel
-DEC_Task08_HepaticVessel_TEMPLATE = Template({
-    'hv': 1,
-    'hvt': 2
-})
+DEC_Task08_HepaticVessel_TEMPLATE = Template(
+    'hv',
+    'hvt'
+)
 # 10_Task09_Spleen
-DEC_Task09_Spleen_TEMPLATE = Template({'spleen': 1})
+DEC_Task09_Spleen_TEMPLATE = Template('spleen')
 # 10_Task10_Colon
-DEC_Task10_Colon_TEMPLATE = Template({'colon_tumor': 1})
+DEC_Task10_Colon_TEMPLATE = Template('colon_tumor')
 # 12_CT-ORG
-CTORG_TEMPLATE = Template({
-    'liver': 1,
-    'bladder': 2,
-    'rlung': 3,
-    'rkidney': 4,
-    'bone': 5,
-    'brain': 6,
-    'llung': 53,
-    'lkidney': 54
-})
+CTORG_TEMPLATE = Template(
+    'liver',
+    'bladder',
+    'rlung',
+    'rkidney',
+    'bone',
+    'brain',
+    'llung',
+    'lkidney'
+)
 # 13_AbdomenCT-12organ
-AbdomenCT12_TEMPLATE = Template({
-    'liver': 1,
-    'rkidney': 2,
-    'spleen': 3,
-    'pancreas': 4,
-    'aorta': 5,
-    'postcava': 6,
-    'stomach': 7,
-    'gall': 8,
-    'esophagus': 9,
-    'radrenal': 10,
-    'ladrenal': 11,
-    'celiac_truck': 12,
-    'lkidney': 52
-})
+AbdomenCT12_TEMPLATE = Template(
+    'liver',
+    'rkidney',
+    'spleen',
+    'pancreas',
+    'aorta',
+    'postcava',
+    'stomach',
+    'gall',
+    'esophagus',
+    'radrenal',
+    'ladrenal',
+    'celiac_truck',
+    'lkidney'
+)
 
 
 def get_template_for_name(name):

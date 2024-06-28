@@ -1,13 +1,16 @@
 import functools
 import inspect
-from typing import Callable
+from typing import Callable, ParamSpec
 
 import numpy as np
 import torch
 from monai.data import MetaTensor
 
 
-def wrap_ndarray_in_tensor(function: Callable[[np.ndarray], np.ndarray]) -> Callable[[torch.Tensor], torch.Tensor]:
+P = ParamSpec('P')
+
+
+def wrap_ndarray_in_tensor(function: Callable[P, np.ndarray]) -> Callable[P, torch.Tensor]:
     """
     Decorator that converts a Tensor given as function's input to a numpy nd-array and converts the result from the
     function back to a tensor. Basically wraps a numpy function to its pytorch equivalent.
@@ -15,8 +18,10 @@ def wrap_ndarray_in_tensor(function: Callable[[np.ndarray], np.ndarray]) -> Call
     :param function: Function to wrap
     """
     @functools.wraps(function)
-    def wrapper(input_: torch.Tensor) -> torch.Tensor:
-        result = function(input_.numpy())
+    def wrapper(*args, **kwargs) -> torch.Tensor:
+        args = [arg.numpy() if isinstance(arg, torch.Tensor) else arg for arg in args]
+        kwargs = {key: arg.numpy() if isinstance(arg, torch.Tensor) else arg for key, arg in kwargs.items()}
+        result = function(*args, **kwargs)
         return torch.as_tensor(result)
 
     return wrapper
