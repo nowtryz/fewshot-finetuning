@@ -44,7 +44,7 @@ def create_trainer(
 
         with torch.autograd.detect_anomaly():
             y_pred = model(x)
-            losses: LossWrapper = loss_fn(y_pred, y)
+            losses: LossWrapper = loss_fn(y_pred, y, mask)
             loss = losses.weighted_loss
 
             if gradient_accumulation_steps > 1:
@@ -91,7 +91,7 @@ def create_evaluator(model: torch.nn.Module, device: torch.device, non_blocking:
 # Possible solutions are:
 #  - if working with each dataset separately, classes can be selected depending on the current dataset
 #  - pass relevant classes (annotation_mask) to the losses and use it as a sparse mask against the logits.
-#     - ensure our operation qre performed on the current class even if not bounding box is present for that
+#     - ensure our operation are performed on the current class even if no bounding box is present for that
 #       class at that moment
 #     - other?
 #  FIXME Or use masked tensor ? Masked with specified classes so computation only reflects the desired classes

@@ -156,6 +156,11 @@ def logits_zeros(shape, device):
     return torch.zeros(*shape, device=device)
 
 
+@pytest.fixture
+def logits_ones(shape, device):
+    return torch.ones(*shape, device=device)
+
+
 # Loss factories
 # --------------
 
@@ -360,6 +365,12 @@ class TestLosses:
             else:
                 assert torch.all(loss == 0).item() is True
 
+        @pytest.mark.parametrize('penalty', ['no-penalty'], indirect=True)
+        def test_box_tightness_no_mask(self, box_tightness_loss, empty_boxes, shape, device, logits_zeros):
+            """If we don't have any mask, we cannot penalize anything"""
+            loss = box_tightness_loss(logits_zeros, empty_boxes)
+            torch.testing.assert_close(loss, torch.zeros_like(loss))
+
     class TestBoxSize:
         def test_box_size_gt(self, box_size_loss, expected_boxes, logits_gt, reduction):
             loss = box_size_loss(logits_gt, expected_boxes)
@@ -388,14 +399,11 @@ class TestLosses:
             else:
                 assert torch.all(loss == 0).item() is True
 
-        @pytest.mark.parametrize('reduction', ['mean', 'sum'], indirect=True)
         @pytest.mark.parametrize('penalty', ['no-penalty'], indirect=True)
-        @pytest.mark.xfail(reason='TODO cover N-boxes = 0, no info is info to cover classes not present in the dataset')
-        def test_box_size_no_mask(self, box_size_loss, empty_boxes, shape, device):
-            """If we don't have any mask, we should penalize all the pixels not being 0"""
-            logits = torch.zeros(shape, device=device)
-            loss = box_size_loss(logits, empty_boxes)
-            assert bool(loss > 0) is True
+        def test_box_size_no_mask(self, box_size_loss, empty_boxes, shape, device, logits_zeros):
+            """If we don't have any mask, we cannot penalize anything"""
+            loss = box_size_loss(logits_zeros, empty_boxes)
+            torch.testing.assert_close(loss, torch.zeros_like(loss))
 
     class TestEmptinessConstraint:
         @skip_params('penalty', ['log-barrier'])
@@ -425,11 +433,33 @@ class TestLosses:
             loss = emptiness_constraint(logits_zeros, expected_boxes)
             assert loss.item() == 0
 
-        def test_emptiness_constraint_full_bg(self, emptiness_constraint, expected_boxes, shape, device):
+        def test_emptiness_constraint_full_bg(self, emptiness_constraint, expected_boxes, shape, device, logits_ones):
             """Test emptiness constraint with background predicted as foreground"""
-            logits = torch.ones(*shape, device=device)
-            loss = emptiness_constraint(logits, expected_boxes)
+            loss = emptiness_constraint(logits_ones, expected_boxes)
             assert loss.item() > 0
+
+        @pytest.mark.parametrize('reduction', ['mean', 'sum', 'original'], indirect=True)
+        @pytest.mark.parametrize('penalty', ['no-penalty'], indirect=True)
+        def test_emptiness_constraint_no_mask(self, emptiness_constraint, empty_boxes, shape, device, reduction,
+                                              logits_ones):
+            """
+            If we don't have any mask, we should penalize all the pixels not being 0 as we know there is no pixels
+            belonging to the class
+            """
+            loss = emptiness_constraint(logits_ones, empty_boxes)
+            torch.testing.assert_close(loss > 0, torch.tensor(True, device=device))
+
+        @pytest.mark.parametrize('reduction', ['none'], indirect=True)
+        def test_emptiness_constraint_annotation_mask(self, emptiness_constraint, device):
+            logits = torch.ones(2, 3, 5, 5, 5, device=device)
+            boxes = torch.zeros(2, 3, 0, 5, 5, 5, device=device).to_sparse(3)
+            annotation_mask = torch.tensor([
+                [1, 1, 0],  # 1st class is present but not 2nd
+                [1, 0, 1],  # 2nd class is present but not 1st
+            ], device=device, dtype=torch.int)
+            loss = emptiness_constraint(logits, boxes, annotation_mask)
+            expected = annotation_mask[:, 1:].bool()  # We want errors were the classes are specified, not elsewhere
+            torch.testing.assert_close(loss > 0, expected)
 
     class TestAllLosses:
         """Global tests for all losses"""
@@ -462,9 +492,30 @@ class TestLosses:
             res = any_loss(torch.nn.functional.softmax(random_logits, dim=1), random_boxes)
             assert 0 <= res.item() <= 1
 
+    # @pytest.mark.parametrize('reduction', ['mean', 'sum', 'original'], indirect=True)
+    @skip_params('reduction', ['none'])
     class TestCombinedLoss:
-        @skip_params('reduction', ['none'])
-        def test_combined_loss_nan(self, reduction, random_logits, random_boxes, device, dimensions, mode):
-            loss_fn = CombinedLoss(reduction, mode=mode).to(device)
-            res = loss_fn(random_logits, random_boxes)
+        @pytest.fixture
+        def combined_loss(self, reduction, mode, device):
+            return CombinedLoss(reduction, mode=mode).to(device)
+
+        def test_combined_loss_step(self, combined_loss):
+            t = combined_loss.log_barrier.t
+            combined_loss.step()
+            assert combined_loss.log_barrier.t > t
+
+        def test_loss_wrapper(self, combined_loss, expected_boxes, logits_gt):
+            loss = combined_loss(logits_gt, expected_boxes)
+            assert loss.item() == loss.weighted_loss.item()
+
+        def test_combined_loss_nan(self, combined_loss, random_logits, random_boxes):
+            res = combined_loss(random_logits, random_boxes)
             assert bool(torch.isfinite(res.weighted_loss).all()), 'Output must not contain NaN or Inf'
+
+        def test_combined_loss_annotation_mask(self, combined_loss, random_logits, random_boxes, shape, device):
+            """Just checking it does not fail with an annotation mask"""
+            annotation_mask = torch.rand(shape[:2], device=device) > .5
+            random_boxes = random_boxes.to_dense()
+            random_boxes[~annotation_mask] = False
+            random_boxes = random_boxes.to_sparse(3)
+            combined_loss(random_logits, random_boxes, annotation_mask)

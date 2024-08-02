@@ -17,6 +17,8 @@ def make_bb_preprocessing_transforms(args):
         MatchTemplate(destination_key="template"),  # Match dataset to according template
         Orientationd(keys=["image", "label"], axcodes="RAS"),  # Enforce orientation to correctly separate Left/Right
         LRDivision(template_key="template", image_key="image", label_key="label"),  # Separate left and right organs
+        Spacingd(keys=["image", "label"], pixdim=(args.space_x, args.space_y, args.space_z),
+                 mode=("bilinear", "nearest")),  # Forces type to float32, so we need to do it before degradation
         DeleteItemsd("bounding_box"),  # "bounding_box" is already present, containing its storing location
         CopyItemsd(keys=["label"],
                    names=["bounding_box"]),  # Copy label to a new key
@@ -24,19 +26,17 @@ def make_bb_preprocessing_transforms(args):
         # Degrade copied label to bounding boxes
         DegradeToBoundingBoxesD(keys=["bounding_box"], template_key="template"),
         MapLabels(),  # Map original datasets labels to universal label (using 'template', affects 'label')
-        Spacingd(keys=["image", "label", "bounding_box"], pixdim=(args.space_x, args.space_y, args.space_z),
-                 mode=("bilinear", "nearest", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max,
-                             clip=True),
-        CropForegroundd(keys=["image", "label", "bounding_box"], source_key="image", allow_smaller=False),
+                             clip=True, dtype=None),
+        CropForegroundd(keys=["image", "label", "bounding_box"], source_key="image", allow_smaller=False, dtype=None),
         SpatialPadd(keys=["image", "label", "bounding_box"],
-                    spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'),
+                    spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant', dtype=None),
         SaveImaged(keys=["image", "label"],
                    output_dir=args.preprocessed_output, output_postfix='', resample=False,
                    data_root_dir=args.data_root_path, separate_folder=False, print_log=False),
         SaveImaged(keys=["bounding_box"],
                    output_dir=args.preprocessed_output, output_postfix='bounding-boxes', resample=False,
-                   data_root_dir=args.data_root_path, separate_folder=False, print_log=False),
+                   data_root_dir=args.data_root_path, separate_folder=False, print_log=False, output_dtype=None),
         SelectItemsd(keys=["image", "label", "name", "bounding_box"]),
     ])
 
@@ -44,12 +44,13 @@ def make_bb_preprocessing_transforms(args):
 def make_bb_augmentation_transforms(args):
     return Compose([
         # Load preprocessed images
-        LoadImaged(keys=["image", "label", "bounding_box"]),
+        LoadImaged(keys=["image", "label", "bounding_box"], dtype=None),
         EnsureChannelFirstd(keys=["image", "label", "bounding_box"]),
         # Perform data augmentation
         RandZoomd_select(keys=["image", "label", "bounding_box"],
                          mode=['area', 'nearest', 'nearest'],
-                         prob=0.3, min_zoom=1.1, max_zoom=1.3),
+                         prob=0.3, min_zoom=1.1, max_zoom=1.3,
+                         dtype=None),
         RandCropByPosNegLabeld(keys=["image", "label", "bounding_box"], label_key="bounding_box",
                                spatial_size=(args.roi_x, args.roi_y, args.roi_z), pos=4, neg=1,
                                num_samples=args.num_samples, image_key="image", image_threshold=0),

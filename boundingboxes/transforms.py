@@ -200,8 +200,8 @@ class BoundingBoxesToOneHot:
         self.sparse = sparse
 
     def __call__(self, volume: torch.Tensor) -> torch.Tensor:
+        assert volume.dim() == 4
         volume_shape = volume.size()
-        assert len(volume_shape) == 4
 
         boxes_count = volume.max().item().bit_length()
         bb_one_hot = torch.zeros(volume_shape[0], boxes_count, *volume_shape[1:], dtype=torch.bool)
@@ -251,7 +251,7 @@ class DegradeToBoundingBoxesD(MapTransform):
         template: Template = data[self.template_key]
         for key in self.key_iterator(data):
             params = (data[key], template.mono_components, template.skipped_indices)
-            data[key] = apply_transform(self.transform, params, unpack_items=True)
+            data[key] = apply_transform(self.transform, params, unpack_items=True, map_items=False)
         return data
 
 

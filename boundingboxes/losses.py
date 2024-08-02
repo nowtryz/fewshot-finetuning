@@ -11,7 +11,7 @@ Note:
     as if it was handling dense (normal) tensors. Advanced users may still check the respective documentation to have a
     better understanding of the mechanics. Here are a list of functions to ignore:
      * `torch.sparse.sum`, equivalent to `torch.sum`
-     * `Tensor.sparse_mask`, equivalent to `Tensor.masked_scatter`
+     * `torch.Tensor.sparse_mask`, equivalent to `torch.Tensor.masked_scatter`
      * `as_masked_tensor`
      * `MaskedTensor.to_tensor`
 """
@@ -22,7 +22,7 @@ from enum import Enum
 from typing import Union, Callable, cast, Literal, Tuple, TypeAlias
 
 import torch
-from torch import nn, Tensor
+from torch import nn
 from torch.masked import MaskedTensor
 
 from . import monkeypatch_maskedtensor  # noqa: fix missing ops
@@ -52,7 +52,7 @@ def as_masked_tensor(data, mask):
     return result
 
 
-def _mask_logits(logits: Tensor, box_masks: Tensor) -> Tensor:
+def _mask_logits(logits: torch.Tensor, box_masks: torch.Tensor) -> torch.Tensor:
     """
     Broadcast our logits to the same dimension of the logits and mask them with our box masks to get a sparse tensor
     with the same dimension as the mask to allow element-wise multiplication, then mask them with the provided box
@@ -127,7 +127,7 @@ class LogBarrierExtension(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        cond, z, t = ctx.saved_tensors  # type: Tensor
+        cond, z, t = ctx.saved_tensors  # type: torch.Tensor
         return torch.where(cond, - 1 / (t * z), t) * grad_output, None
 
 
@@ -150,10 +150,10 @@ class LogBarrierPenalty(nn.Module):
         can be viewed [as] a smooth approximation of hard indicator function :math:`H`"
     :param epoch_multiplier: TODO
     """
-    _t: Tensor
-    _epoch_multiplier: Tensor
-    _b: Tensor
-    _ceil: Tensor
+    _t: torch.Tensor
+    _epoch_multiplier: torch.Tensor
+    _b: torch.Tensor
+    _ceil: torch.Tensor
 
     def __init__(self, t: float = 5., epoch_multiplier: Union[int, float] = 1.1):
         super().__init__()
@@ -220,7 +220,7 @@ class BoxTightnessPriorLoss(nn.Module):
                 f'reduction={self.reduction}, '
                 f'mode={self.mode}')
 
-    def forward(self, logits: Tensor, box_masks: Tensor):
+    def forward(self, logits: torch.Tensor, box_masks: torch.Tensor):
         r"""
         Computes the Box Tightness Prior loss from the given logits and bonding box masks.
 
@@ -257,8 +257,8 @@ class BoxTightnessPriorLoss(nn.Module):
             # Shape B x C x N x result of slices (with lots of 0)
             slices = torch.sparse.sum(predicted_boxes, dim=slice_dims).to_dense()
 
-            # We need to carry a mask with the same computation to then create our masked tensor as Tensor.unfold is not
-            # supported by masked tensors
+            # We need to carry a mask with the same computation to then create our masked tensor as torch.Tensor.unfold
+            # is not supported by masked tensors
             # Bug https://github.com/pytorch/pytorch/issues/122711
             # mask = torch.sparse.sum(box_masks, dim=slice_dims).to_dense().bool()
             # Workaround:
@@ -304,7 +304,7 @@ class BoxTightnessPriorLoss(nn.Module):
         # Each `slices_error` has values between 0 and 1 and the number of segments is the dimension of the slice
         # divided by the width of the slice (neglecting edges, which are smaller)
         # Replace 0s with 1s in the `segment_counts` tensor to avoid divisions by 0
-        divisor = segment_counts.where(cast(Tensor, segment_counts != 0), 1)
+        divisor = segment_counts.where(cast(torch.Tensor, segment_counts != 0), 1)
         error = error / divisor / self.slices_width
         if self.reduction is Reduction.MEAN:
             return torch.sum(error) / (torch.count_nonzero(segment_counts) or 1)
@@ -330,11 +330,11 @@ class BoxSizePriorLoss(nn.Module):
         ``'original'``. ``'original'`` means the original implementation of the paper: sum of all errors divided by the
         number of pixels/voxels in the input image.
     """
-    minimum: Tensor
-    maximum: Tensor
+    minimum: torch.Tensor
+    maximum: torch.Tensor
 
-    def __init__(self, minimum: Union[float, Tensor], maximum: Union[float, Tensor],
-                 penalty: Callable[[Tensor], Tensor] = None, reduction: ReductionArg = 'original'):
+    def __init__(self, minimum: Union[float, torch.Tensor], maximum: Union[float, torch.Tensor],
+                 penalty: Callable[[torch.Tensor], torch.Tensor] = None, reduction: ReductionArg = 'original'):
         super().__init__()
         self.register_buffer('minimum', torch.as_tensor(minimum, dtype=torch.float))
         self.register_buffer('maximum', torch.as_tensor(maximum, dtype=torch.float))
@@ -349,7 +349,7 @@ class BoxSizePriorLoss(nn.Module):
                 f'maximum={self.maximum}, '
                 f'reduction={self.reduction}')
 
-    def forward(self, logits: Tensor, box_masks: Tensor):
+    def forward(self, logits: torch.Tensor, box_masks: torch.Tensor):
         r"""
         Computes the Box Size loss from the given logits and bonding box masks.
 
@@ -445,28 +445,41 @@ class OutsideBoxEmptinessConstraintLoss(nn.Module):
         the classes and images in the batch instead of summed. This behavior can be obtained using
         ``OutsideBoxEmptinessConstraintLoss(..., reduction='original')``
 
+    .. note::
+        In case of training with multiple dataset and possibly unspecified classes for certain volumes, the loss need to
+        know which are the specified classes for the processed volumes as absent classes must not be considered
+        background. The loss must focus on the specified classes and give an error if voxels/pixels were predicted
+        outside the boxes for the specified classes. Contrary to other losses in this module, this loss cannot only
+        focus on provided boxes as a class that doesn't have any boxes (which means no voxel/pixel should be predicted)
+        is indistinguishable from an absent class, i.e. ``0`` specified boxes. To overcome this issue, `annotation_mask`
+        must be provided to the forward pass.
+
     :param penalty: Penalty to apply before the reduction when the error has been computed
     :param reduction: Specifies the reduction to apply to the output: ``'none'`` | ``'mean'`` | ``'sum'```|
         ``'original'``. ``'original'`` means the original implementation of the paper: sum of all errors divided by the
         number of pixels/voxels in the input image.
     """
 
-    def __init__(self, penalty: Callable[[Tensor], Tensor] = None, reduction: ReductionArg = 'original'):
+    def __init__(self, penalty: Callable[[torch.Tensor], torch.Tensor] = None, reduction: ReductionArg = 'original'):
         super().__init__()
         self.penalty = penalty if penalty is not None else InequalityL2Penalty()
         self.reduction = Reduction(reduction)
 
-    def forward(self, logits: Tensor, box_masks: Tensor):
+    def forward(self, logits: torch.Tensor, box_masks: torch.Tensor, annotation_mask: torch.Tensor = None):
         r"""
         Computes the Emptiness Constraint loss from the given logits and bonding box masks.
 
         :param logits: Softmax logits predicted by the model
-        :param box_masks: Masks containing all the bounding boxes for each classes
+        :param box_masks: Masks containing all the bounding boxes for each class
+        :param annotation_mask: specifies which class should be considered present when computing the loss. If not
+            specified, the loss will consider all classes are present and any pixel/voxel outside a box will be
+            penalized
 
         Shape:
              - ``logits``: :math:`(B \times C \times W \times H \times D)` or :math:`(B \times C \times W \times H)`
              - ``box_masks``: :math:`(B \times C \times N \times W \times H \times D)` or :math:`(B \times C \times N
                \times W \times H)` with sparse dimensions :math:`B, C, N`
+             - ``annotation_mask``: *(if provided)*  :math:`(B \times C)`
 
             With :math:`B`, :math:`C`, :math:`N` and :math:`(W, H, D)` being respectively the batch size, the number of
             classes, the maximum number of bonding boxes and the images dimensions.
@@ -476,8 +489,10 @@ class OutsideBoxEmptinessConstraintLoss(nn.Module):
         """
         # Ensure box_masks is sparse as the loss is designed to handle sparse masks
         assert box_masks.is_sparse and box_masks.sparse_dim() == 3, "Expected a sparse box mask with sparse `B, C, N`"
-
-        # TODO cover N-boxes = 0, no information is information for this loss (cover classes not present in the dataset)
+        
+        # Ensure annotation mask has the intended shape
+        assert annotation_mask is None or annotation_mask.shape == logits.shape[:2], \
+            "The annotation mask should match the batch received"
 
         # Retrieve image dimensions to support both 2D and 3D
         # This all the dimensions but the first 2, being batches and classes
@@ -502,11 +517,15 @@ class OutsideBoxEmptinessConstraintLoss(nn.Module):
         error = self.penalty(outside)
         assert error.size() == logits.size()[:2], 'penalty should not change the dimensions of the tensor'
 
+        # We do not want any loss, thus any penalty either, for absent classes
+        if annotation_mask is not None:
+            error *= annotation_mask[:, 1:]  # Skip background
+
         # Reduce loss and return
         if self.reduction is Reduction.MEAN:
             return torch.sum(error) / (outside_mask.sum() + 1E-5)  # + perturbation to avoid Inf is sum is 0
         if self.reduction is Reduction.SUM:
-            return torch.sum(error) / (outside_mask.sum() + 1E-5)  # + perturbation to avoid Inf is sum is 0
+            return torch.sum(error)
         if self.reduction is Reduction.ORIGINAL:
             im_shape = logits.size()[2:]  # Get shape without batch and classes
             return torch.sum(error) / math.prod(im_shape)
@@ -516,10 +535,10 @@ class OutsideBoxEmptinessConstraintLoss(nn.Module):
 @dataclass
 class LossWrapper:
     """Wraps loss values to pass through ignite's supervised_training_step without loosing computed losses"""
-    tightness_prior: Tensor
-    box_size: Tensor
-    emptiness_constraint: Tensor
-    weighted_loss: Tensor
+    tightness_prior: torch.Tensor
+    box_size: torch.Tensor
+    emptiness_constraint: torch.Tensor
+    weighted_loss: torch.Tensor
 
     def __getattr__(self, item):
         return getattr(self.weighted_loss, item)
@@ -547,13 +566,13 @@ class CombinedLoss(nn.Module):
         self.register_buffer('softmax_high_temperature', torch.tensor(softmax_high_temperature, dtype=torch.float))
         self.register_buffer('softmax_low_temperature', torch.tensor(softmax_low_temperature, dtype=torch.float))
 
-    def forward(self, logits: torch.Tensor, box_masks: torch.Tensor):
+    def forward(self, logits: torch.Tensor, box_masks: torch.Tensor, annotation_mask: torch.Tensor = None):
         low_temp_logits = torch.softmax(logits / self.softmax_low_temperature, dim=1)
         high_temp_logits = torch.softmax(logits / self.softmax_high_temperature, dim=1)
 
         tightness_prior = self.tightness_prior(low_temp_logits, box_masks)
         box_size = self.box_size(low_temp_logits, box_masks)
-        emptiness_constraint = self.emptiness_constraint(high_temp_logits, box_masks)
+        emptiness_constraint = self.emptiness_constraint(high_temp_logits, box_masks, annotation_mask)
 
         losses = torch.stack([
             tightness_prior,
