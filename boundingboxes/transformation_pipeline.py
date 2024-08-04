@@ -1,14 +1,42 @@
+import nibabel as nib
+import numpy as np
 import torch
+from monai.config import NdarrayOrTensor, DtypeLike
+from monai.data import NibabelWriter, to_affine_nd
 from monai.transforms import (Compose, CropForegroundd, Orientationd, RandShiftIntensityd,
                               ScaleIntensityRanged, Spacingd, RandRotate90d, ToTensord, SpatialPadd, LoadImaged,
                               RandCropByPosNegLabeld, SaveImaged, SelectItemsd, CopyItemsd, DeleteItemsd,
                               EnsureChannelFirstd)
+from monai.utils import get_equivalent_dtype, convert_data_type
 
 from pretrain.datasets.transforms import (CategoricalToOneHot, MapLabels, LRDivision,
                                           RandZoomd_select, MatchTemplate, GetAnnotationMask)
 from utils.templates import NUM_CLASSES
 from .transforms import (OriginalDimToUniversalDim, CategoricalToOneHotDynamic,
-                         AsDictionaryTransform, DegradeToBoundingBoxes, BoundingBoxesToOneHot, DegradeToBoundingBoxesD)
+                         AsDictionaryTransform, BoundingBoxesToOneHot, DegradeToBoundingBoxesD)
+
+
+class BoundingBoxNiftiWriter(NibabelWriter):
+    @classmethod
+    def create_backend_obj(
+            cls, data_array: NdarrayOrTensor, affine: NdarrayOrTensor | None = None, dtype: DtypeLike = None, **kwargs
+    ):
+        """Copied from :ref:`NibabelWriter.create_backend_obj`"""
+        data_array = super(NibabelWriter, cls).create_backend_obj(data_array)
+        if dtype is not None:
+            data_array = data_array.astype(get_equivalent_dtype(dtype, np.ndarray), copy=False)
+        affine = convert_data_type(affine, np.ndarray)[0]
+        if affine is None:
+            affine = np.eye(4)
+        affine = to_affine_nd(r=3, affine=affine)
+        return nib.nifti1.Nifti1Image(
+            data_array,
+            affine,
+            header=kwargs.pop("header", None),
+            extra=kwargs.pop("extra", None),
+            file_map=kwargs.pop("file_map", None),
+            dtype=data_array.dtype  # Forces dtype even if int64 or uint64
+        )
 
 
 def make_bb_preprocessing_transforms(args):
@@ -28,13 +56,13 @@ def make_bb_preprocessing_transforms(args):
         MapLabels(),  # Map original datasets labels to universal label (using 'template', affects 'label')
         ScaleIntensityRanged(keys=["image"], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max,
                              clip=True, dtype=None),
-        CropForegroundd(keys=["image", "label", "bounding_box"], source_key="image", allow_smaller=False, dtype=None),
+        CropForegroundd(keys=["image", "label", "bounding_box"], source_key="image", allow_smaller=False),
         SpatialPadd(keys=["image", "label", "bounding_box"],
-                    spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant', dtype=None),
+                    spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'),
         SaveImaged(keys=["image", "label"],
                    output_dir=args.preprocessed_output, output_postfix='', resample=False,
                    data_root_dir=args.data_root_path, separate_folder=False, print_log=False),
-        SaveImaged(keys=["bounding_box"],
+        SaveImaged(keys=["bounding_box"], writer=BoundingBoxNiftiWriter,
                    output_dir=args.preprocessed_output, output_postfix='bounding-boxes', resample=False,
                    data_root_dir=args.data_root_path, separate_folder=False, print_log=False, output_dtype=None),
         SelectItemsd(keys=["image", "label", "name", "bounding_box"]),

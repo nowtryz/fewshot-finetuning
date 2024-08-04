@@ -21,7 +21,7 @@ def main():
     args = parser.parse_args()
 
     preprocessing_transforms = make_bb_preprocessing_transforms(args)
-    item = get_train_data(args, args.data_root_path)[args.volume]
+    item = get_train_data(args.data_txt_path, args.data_root_path)[args.volume]
 
     if args.archive is not None:
         root = args.data_root_path
