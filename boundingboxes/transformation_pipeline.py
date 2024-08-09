@@ -1,113 +1,91 @@
-import nibabel as nib
-import numpy as np
 import torch
-from monai.config import NdarrayOrTensor, DtypeLike
-from monai.data import NibabelWriter, to_affine_nd
+from monai.apps.detection.transforms.dictionary import RandCropBoxByPosNegLabeld, RandZoomBoxd, RandRotateBox90d
 from monai.transforms import (Compose, CropForegroundd, Orientationd, RandShiftIntensityd,
-                              ScaleIntensityRanged, Spacingd, RandRotate90d, ToTensord, SpatialPadd, LoadImaged,
-                              RandCropByPosNegLabeld, SaveImaged, SelectItemsd, CopyItemsd, DeleteItemsd,
+                              ScaleIntensityRanged, Spacingd, ToTensord, SpatialPadd, LoadImaged,
+                              RandCropByPosNegLabeld, SaveImaged, SelectItemsd, DeleteItemsd,
                               EnsureChannelFirstd)
-from monai.utils import get_equivalent_dtype, convert_data_type
 
 from pretrain.datasets.transforms import (CategoricalToOneHot, MapLabels, LRDivision,
-                                          RandZoomd_select, MatchTemplate, GetAnnotationMask)
+                                          MatchTemplate, GetAnnotationMask, ApplyToDecathlonOnly)
 from utils.templates import NUM_CLASSES
-from .transforms import (OriginalDimToUniversalDim, CategoricalToOneHotDynamic,
-                         AsDictionaryTransform, BoundingBoxesToOneHot, DegradeToBoundingBoxesD)
+from .transforms import (DegradeToBoundingBoxesD, BoundingBoxesToOneHotD)
 
 
-class BoundingBoxNiftiWriter(NibabelWriter):
-    @classmethod
-    def create_backend_obj(
-            cls, data_array: NdarrayOrTensor, affine: NdarrayOrTensor | None = None, dtype: DtypeLike = None, **kwargs
-    ):
-        """Copied from :ref:`NibabelWriter.create_backend_obj`"""
-        data_array = super(NibabelWriter, cls).create_backend_obj(data_array)
-        if dtype is not None:
-            data_array = data_array.astype(get_equivalent_dtype(dtype, np.ndarray), copy=False)
-        affine = convert_data_type(affine, np.ndarray)[0]
-        if affine is None:
-            affine = np.eye(4)
-        affine = to_affine_nd(r=3, affine=affine)
-        return nib.nifti1.Nifti1Image(
-            data_array,
-            affine,
-            header=kwargs.pop("header", None),
-            extra=kwargs.pop("extra", None),
-            file_map=kwargs.pop("file_map", None),
-            dtype=data_array.dtype  # Forces dtype even if int64 or uint64
-        )
-
-
-def make_bb_preprocessing_transforms(args):
+def make_bb_augmentation_transforms(args):
     return Compose([
         LoadImaged(keys=["image", "label"], ensure_channel_first=True),
         MatchTemplate(destination_key="template"),  # Match dataset to according template
         Orientationd(keys=["image", "label"], axcodes="RAS"),  # Enforce orientation to correctly separate Left/Right
         LRDivision(template_key="template", image_key="image", label_key="label"),  # Separate left and right organs
-        Spacingd(keys=["image", "label"], pixdim=(args.space_x, args.space_y, args.space_z),
-                 mode=("bilinear", "nearest")),  # Forces type to float32, so we need to do it before degradation
-        DeleteItemsd("bounding_box"),  # "bounding_box" is already present, containing its storing location
-        CopyItemsd(keys=["label"],
-                   names=["bounding_box"]),  # Copy label to a new key
-        CategoricalToOneHotDynamic(template_key="template", label_key="bounding_box"),  # Convert copied key to one hot
-        # Degrade copied label to bounding boxes
-        DegradeToBoundingBoxesD(keys=["bounding_box"], template_key="template"),
-        MapLabels(),  # Map original datasets labels to universal label (using 'template', affects 'label')
+        Spacingd(
+            keys=["image", "label"],
+            pixdim=(args.space_x, args.space_y, args.space_z),
+            mode=("bilinear", "nearest")
+        ),
         ScaleIntensityRanged(keys=["image"], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max,
                              clip=True, dtype=None),
-        CropForegroundd(keys=["image", "label", "bounding_box"], source_key="image", allow_smaller=False),
-        SpatialPadd(keys=["image", "label", "bounding_box"],
+        CropForegroundd(keys=["image", "label"], source_key="image", allow_smaller=False),
+        SpatialPadd(keys=["image", "label"],
                     spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'),
-        SaveImaged(keys=["image", "label"],
-                   output_dir=args.preprocessed_output, output_postfix='', resample=False,
-                   data_root_dir=args.data_root_path, separate_folder=False, print_log=False),
-        SaveImaged(keys=["bounding_box"], writer=BoundingBoxNiftiWriter,
-                   output_dir=args.preprocessed_output, output_postfix='bounding-boxes', resample=False,
-                   data_root_dir=args.data_root_path, separate_folder=False, print_log=False, output_dtype=None),
-        SelectItemsd(keys=["image", "label", "name", "bounding_box"]),
-    ])
-
-
-def make_bb_augmentation_transforms(args):
-    return Compose([
-        # Load preprocessed images
-        LoadImaged(keys=["image", "label", "bounding_box"], dtype=None),
-        EnsureChannelFirstd(keys=["image", "label", "bounding_box"]),
+        # Degrade copied label to bounding boxes
+        DegradeToBoundingBoxesD(
+            keys="label",
+            box_keys="boxes",
+            box_labels_keys="boxes_labels",
+            template_key="template"
+        ),
+        MapLabels(keys=['label', 'boxes_labels']),  # Map original datasets labels to universal label
         # Perform data augmentation
-        RandZoomd_select(keys=["image", "label", "bounding_box"],
-                         mode=['area', 'nearest', 'nearest'],
-                         prob=0.3, min_zoom=1.1, max_zoom=1.3,
-                         dtype=None),
-        RandCropByPosNegLabeld(keys=["image", "label", "bounding_box"], label_key="bounding_box",
-                               spatial_size=(args.roi_x, args.roi_y, args.roi_z), pos=4, neg=1,
-                               num_samples=args.num_samples, image_key="image", image_threshold=0),
-        RandRotate90d(keys=["image", "label", "bounding_box"], prob=0.10, max_k=3),
+        ApplyToDecathlonOnly(  # is it treated as random ???
+            RandZoomBoxd(
+                image_keys=["image", "label"],
+                box_keys="boxes",
+                box_ref_image_keys="image",
+                mode=['area', 'nearest'],
+                prob=0.3, min_zoom=1.1, max_zoom=1.3
+            )
+        ),
+        RandCropBoxByPosNegLabeld(image_keys=["image", "label"], box_keys="boxes", label_keys="boxes_labels",
+                                  spatial_size=(args.roi_x, args.roi_y, args.roi_z), pos=4, neg=1,
+                                  num_samples=args.num_samples, image_threshold=0),
+        RandRotateBox90d(image_keys=["image", "label"], box_keys="boxes", box_ref_image_keys="image",
+                         prob=0.10, max_k=3),
         RandShiftIntensityd(keys=["image"], offsets=0.10, prob=0.20),
         # Prepare data for training
         MatchTemplate(),  # Match dataset to according template once again to be able to retrieve annotation mask
         GetAnnotationMask(),  # Copy annotation mask from template to a separate key
-        OriginalDimToUniversalDim(template_key="template",
-                                  bb_key="bounding_box"),  # Adapt bounding boxes to universal dimensions
-        ToTensord(keys=["annotation_mask", "bounding_box"], track_meta=False),  # Drop MetaTensor
+        ToTensord(keys=["annotation_mask", "boxes_labels", "boxes_labels"], track_meta=False),  # Drop MetaTensor
         ToTensord(keys=["image", "label"], dtype=torch.float32, track_meta=False),
-        AsDictionaryTransform(BoundingBoxesToOneHot(sparse=True),  # Adapt bounding boxes for losses
-                              keys=["bounding_box"]),
-        SelectItemsd(keys=["image", "label", "annotation_mask", "bounding_box"]),
+        # Adapt bounding boxes for losses
+        BoundingBoxesToOneHotD(boxes_keys='boxes', labels_keys='boxes_labels', box_ref_image_keys='image',
+                               num_classes=NUM_CLASSES, sparse=True),
+        SelectItemsd(keys=["image", "label", "annotation_mask", "boxes"]),
         CategoricalToOneHot(NUM_CLASSES),
     ])
 
 
 def make_bb_validation_transforms(args):
     return Compose([
-        LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstd(keys=["image", "label"]),
+        LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+        MatchTemplate(destination_key="template"),  # Match dataset to according template
+        Orientationd(keys=["image", "label"], axcodes="RAS"),  # Enforce orientation to correctly separate Left/Right
+        LRDivision(template_key="template", image_key="image", label_key="label"),  # Separate left and right organs
+        Spacingd(
+            keys=["image", "label"],
+            pixdim=(args.space_x, args.space_y, args.space_z),
+            mode=("bilinear", "nearest")
+        ),
+        ScaleIntensityRanged(keys=["image"], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max,
+                             clip=True, dtype=None),
+        CropForegroundd(keys=["image", "label"], source_key="image", allow_smaller=False),
+        SpatialPadd(keys=["image", "label"],
+                    spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'),
+        MapLabels(keys=['label']),  # Map original datasets labels to universal label
         # Perform a random crop to fit image on GPU Memory
         RandCropByPosNegLabeld(keys=["image", "label"], label_key="label",
                                spatial_size=(args.roi_x, args.roi_y, args.roi_z), pos=4, neg=1,
                                num_samples=args.num_samples, image_key="image", image_threshold=0),
         # Prepare data for validation
-        MatchTemplate(),  # Match dataset to according template once again to be able to retrieve annotation mask
         GetAnnotationMask(),  # Copy annotation mask from template to a separate key
         ToTensord(keys=["annotation_mask"]),  # Drop MetaTensor
         ToTensord(keys=["image", "label"], dtype=torch.float32),

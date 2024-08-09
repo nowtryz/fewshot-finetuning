@@ -135,18 +135,12 @@ def setup_experiment(
         # Give all arguments as keyword arguments to ensure edits don't break compatibility with existing experiments
         *,
         args: argparse.Namespace,
-        preprocessing_transforms: Callable,
         augmentation_transforms: Callable,
         validation_transforms: Callable,
         num_classes: int = NUM_CLASSES,
         model: nn.Module = None,
         collate_fn=None
 ):
-    if not args.use_cache:
-        preprocess_data(args, preprocessing_transforms)
-    if args.preprocess_only:
-        sys.exit(0)
-
     if args.dist:
         idist.initialize(backend="nccl")
         idist.show_config()
@@ -181,8 +175,7 @@ def setup_experiment(
                                               max_epochs=args.max_epoch,
                                               warmup_start_lr=args.lr / args.warmup_epoch)
 
-    train_loader, val_loader = get_loader(args, augmentation_transforms,
-                                          validation_transforms, collate_fn)
+    train_loader, val_loader = get_loader(args, augmentation_transforms, validation_transforms, device, collate_fn)
 
     args.NUM_CLASS = num_classes
 

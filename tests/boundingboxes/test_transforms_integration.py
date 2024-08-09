@@ -6,8 +6,7 @@ from monai.data import MetaTensor
 from monai.transforms import LoadImage
 from torch.nn import functional as F  # noqa
 
-from boundingboxes.transforms import DegradeToBoundingBoxes, BoundingBoxesToOneHot, OriginalDimToUniversalDim, \
-    CategoricalToOneHotDynamic
+from boundingboxes.transforms import DegradeToBoundingBoxes, BoundingBoxesToOneHot, OriginalDimToUniversalDim
 from utils.templates import BTCV_TEMPLATE, NUM_CLASSES
 
 
@@ -61,18 +60,3 @@ def test_original_dim_to_universal_dim(atlas_label_1):
 
     assert result['label'].shape == (NUM_CLASSES, *label.shape[1:])
     assert not result['label'][template.annotation_mask == 0].any()
-
-
-def test_categorical_to_one_hot_dynamic(atlas_label_1):
-    transform = CategoricalToOneHotDynamic(label_key="label", template_key="template")
-    template = BTCV_TEMPLATE
-    label = atlas_label_1[None, ...]
-
-    data = {
-        'label': label,
-        'template': template
-    }
-
-    result = transform(data)
-
-    assert result['label'].shape == (BTCV_TEMPLATE.num_classes, *label.shape[1:])

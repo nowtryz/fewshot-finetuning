@@ -1,12 +1,14 @@
 import numpy as np
 import torch
-
-from monai.transforms import (RandZoomd, Transform, ThreadUnsafe)
+from monai.config import KeysCollection
+from monai.transforms import (Transform, MapTransform, RandomizableTransform, RandomizableTrait)
+from monai.utils import TransformBackends
 
 from utils.templates import get_template_for_name, Template
 
 
-class LRDivision(Transform, ThreadUnsafe):
+class LRDivision(Transform):
+    backend = TransformBackends.TORCH, TransformBackends.NUMPY
     REPLACEMENTS = [
         # right key -> left key
         ('rkidney', 'lkidney'),
@@ -31,22 +33,23 @@ class LRDivision(Transform, ThreadUnsafe):
         return data
 
 
-class RandZoomd_select(RandZoomd):
+class ApplyToDecathlonOnly(RandomizableTrait):
     """Random zoom only for Decathlon"""
-    def __call__(self, data, *args, **kwargs):
-        d = dict(data)
-        name = d['name']
-        key = name.split("/")[0]
-        if not ("10" in key):
-            return d
-        d = super().__call__(d, *args, **kwargs)
-        return d
+    def __init__(self, transform: RandomizableTransform):
+        self.transform = transform
+
+    def __call__(self, data):
+        if 'Decathlon' in data['name']:
+            return self.transform(data)
+        return data
 
 
-class MatchTemplate:
+class MatchTemplate(Transform):
     """
     TODO
     """
+    backend = TransformBackends.TORCH, TransformBackends.NUMPY
+
     def __init__(self, destination_key='template'):
         self.destination_key = destination_key
 
@@ -55,24 +58,32 @@ class MatchTemplate:
         return data
 
 
-class MapLabels:
+class MapLabels(MapTransform):
     """
     TODO
     """
+    backend = TransformBackends.TORCH, TransformBackends.NUMPY
+
+    def __init__(self, keys: KeysCollection = 'label', template_key='template'):
+        super().__init__(keys)
+        self.template_key = template_key
+
     def __call__(self, data):
-        y = data['label']
-        template: Template = data['template']
+        template: Template = data[self.template_key]
 
-        try:
-            y = template.to_universal_indexing(y)
-        except Exception:  # noqa
-            raise ValueError("WARNING: Error during mapping. Check that all organs are at the universal template.")
+        for key in self.key_iterator(data):
+            y = data[key]
+            try:
+                y = template.to_universal_indexing(y)
+            except Exception:  # noqa
+                raise ValueError("WARNING: Error during mapping. Check that all organs are at the universal template.")
+            else:
+                data[key] = y
 
-        data['label'] = y
         return data
 
 
-class GetAnnotationMask:
+class GetAnnotationMask(Transform):
     """
     TODO
     """
@@ -82,7 +93,7 @@ class GetAnnotationMask:
         return data
 
 
-class CategoricalToOneHot:
+class CategoricalToOneHot(Transform):
     def __init__(self, classes, label_key='label'):
         self.label_key = label_key
         self.classes = classes

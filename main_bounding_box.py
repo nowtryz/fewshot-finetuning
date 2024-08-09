@@ -11,8 +11,7 @@ from ignite.metrics.metric import RunningBatchWise
 
 from boundingboxes.losses import CombinedLoss, LossWrapper, Reduction
 from boundingboxes.sparse_utils import sparse_list_data_collate
-from boundingboxes.transformation_pipeline import make_bb_preprocessing_transforms, make_bb_augmentation_transforms, \
-    make_bb_validation_transforms
+from boundingboxes.transformation_pipeline import make_bb_augmentation_transforms, make_bb_validation_transforms
 from utils.engine import setup_experiment, setup_trainer, setup_evaluator, setup_logger, Experiment, \
     use_current_experiment
 from utils.losses import BinaryDice3D
@@ -38,7 +37,7 @@ def create_trainer(
 
         model.train()
         x = batch["image"].to(device, non_blocking=non_blocking)
-        y = batch["bounding_box"].to(device, non_blocking=non_blocking)
+        y = batch["boxes"].to(device, non_blocking=non_blocking)
         label = batch["label"].to(device, non_blocking=non_blocking)
         mask = batch["annotation_mask"].to(device, non_blocking=non_blocking)
 
@@ -86,18 +85,6 @@ def create_evaluator(model: torch.nn.Module, device: torch.device, non_blocking:
     return Engine(update)
 
 
-# Classes selection is not possible as all image may not be from the same dataset and de facto may not have the
-# same classes defined.
-# Possible solutions are:
-#  - if working with each dataset separately, classes can be selected depending on the current dataset
-#  - pass relevant classes (annotation_mask) to the losses and use it as a sparse mask against the logits.
-#     - ensure our operation are performed on the current class even if no bounding box is present for that
-#       class at that moment
-#     - other?
-#  FIXME Or use masked tensor ? Masked with specified classes so computation only reflects the desired classes
-# masked_logits, masked_masks = select_classes(logit_map, y, annotation_mask)
-
-
 @use_current_experiment
 def setup_bb_metrics(experiment: Experiment, trainer: Engine, dice: BinaryDice3D):
     # Attach losses logging and metrics
@@ -133,13 +120,12 @@ def main():
     args = parser.parse_args()
 
     # Memory pinning is not supported by sparse tensor, forcing it to be disabled
-    if args.pin_memory:
+    if args.pin_memory and not args.preprocess_only:  # Do not warn if we will only preprocess (only uses CPU)
         warnings.warn("Memory pinning is not supported for bounding boxes as not supported by sparse tensors")
         args.pin_memory = False
 
     with setup_experiment(
             args=args,
-            preprocessing_transforms=make_bb_preprocessing_transforms(args),
             augmentation_transforms=make_bb_augmentation_transforms(args),
             validation_transforms=make_bb_validation_transforms(args),
             collate_fn=sparse_list_data_collate,

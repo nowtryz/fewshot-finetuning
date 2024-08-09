@@ -21,7 +21,7 @@ class FloatRangeAction(argparse.Action):
         setattr(namespace, self.dest, value)
 
 
-def register_folder_arguments(parser: argparse.ArgumentParser, allow_cache=True):
+def register_folder_arguments(parser: argparse.ArgumentParser):
     """Folders, dataset, etc."""
     parser.add_argument('--out-path', default='./pretrain/results/', type=Path, help='The path resume from checkpoint')
     parser.add_argument('--data-root-path', default="./data/", type=Path, help='data root path')
@@ -30,16 +30,9 @@ def register_folder_arguments(parser: argparse.ArgumentParser, allow_cache=True)
     parser.add_argument('--preprocessed-output', default='./data/preprocessed-data', type=Path,
                         help='Locations to store cached preprocessed images and labels')
 
-    if allow_cache:
-        parser.add_argument('--use-cache', action='store_true', help='Use previously preprocessed images')
-        parser.add_argument('--preprocess-only', action='store_true', help="Don't train, and only perform the "
-                                                                           "preprocessing")
-
 
 def register_preprocessing_arguments(parser: argparse.ArgumentParser):
     """Volume pre-processing"""
-    parser.add_argument('--max-preprocessor', type=int, default=-1, help='Number of cores to use for preprocessing,'
-                                                                         ' -1 to use as many as available')
     parser.add_argument('--a_min', default=-175, type=float, help='a_min in ScaleIntensityRanged')
     parser.add_argument('--a_max', default=250, type=float, help='a_max in ScaleIntensityRanged')
     parser.add_argument('--b_min', default=0.0, type=float, help='b_min in ScaleIntensityRanged')

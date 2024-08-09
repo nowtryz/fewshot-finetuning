@@ -5,8 +5,7 @@ import torch
 from ignite.engine import create_supervised_trainer
 from ignite.metrics import Loss, EpochMetric, Average
 
-from pretrain.datasets.tranformation_pipeline import make_preprocessing_transforms, make_augmentation_transforms, \
-    make_validation_transforms
+from pretrain.datasets.transformation_pipeline import make_augmentation_transforms, make_validation_transforms
 from utils.engine import setup_experiment, setup_trainer, setup_evaluator, setup_logger
 from utils.losses import BinaryDice3D
 from utils.misc import capture_duration, monitor_resources
@@ -46,7 +45,6 @@ def main():
 
     with setup_experiment(
         args=args,
-        preprocessing_transforms=make_preprocessing_transforms(args),
         augmentation_transforms=make_augmentation_transforms(args),
         validation_transforms=make_validation_transforms(args)
     ) as experiment:

@@ -3,9 +3,9 @@ import logging
 import tarfile
 from pathlib import Path
 
-from monai.transforms import apply_transform
+from monai.transforms import apply_transform, RandomizableTrait
 
-from boundingboxes import make_bb_preprocessing_transforms
+from boundingboxes import make_bb_augmentation_transforms
 from utils.data_loading import get_train_data
 from utils.parser import register_preprocessing_arguments, register_folder_arguments
 
@@ -16,11 +16,12 @@ def main():
     parser.add_argument('volume', type=int, help='Index of the volume from the computed train data')
     parser.add_argument('--archive', type=argparse.FileType('rb'),
                         help='path to the dataset archive, if the script need to extract file')
-    register_folder_arguments(parser, allow_cache=False)
+    register_folder_arguments(parser)
     register_preprocessing_arguments(parser)
     args = parser.parse_args()
 
-    preprocessing_transforms = make_bb_preprocessing_transforms(args)
+    preprocessing_transforms = make_bb_augmentation_transforms(args)
+    first_random = preprocessing_transforms.get_index_of_first(lambda t: isinstance(t, RandomizableTrait))
     item = get_train_data(args.data_txt_path, args.data_root_path)[args.volume]
 
     if args.archive is not None:
@@ -35,7 +36,7 @@ def main():
             extract(archive, archive_label, item['label'])
 
     logging.info(f"Preprocessing {item['bounding_box']}...")
-    apply_transform(preprocessing_transforms, item)
+    preprocessing_transforms(item, end=first_random)
 
 
 def extract(archive: tarfile.TarFile, member: tarfile.TarInfo, destination: Path):

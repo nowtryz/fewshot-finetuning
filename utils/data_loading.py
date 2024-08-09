@@ -6,8 +6,9 @@ from pathlib import Path
 import ignite
 import torch.multiprocessing
 from ignite.distributed import one_rank_only
-from monai.data import Dataset, DistributedSampler, DataLoader, list_data_collate
+from monai.data import Dataset, DistributedSampler, DataLoader, list_data_collate, GDSDataset, PersistentDataset
 from monai.transforms import apply_transform
+from monai.utils import optional_import
 from torch.utils.data import random_split
 from tqdm import tqdm
 
@@ -23,7 +24,6 @@ def get_train_data(data_txt_path: str | PathLike[str], root: Path):
                 'image': root / image,
                 'label': root / label,
                 'name': name,
-                'bounding_box': root / f'{name}_bounding-boxes.nii.gz'  # Just for bounding box experiments
             })
 
     return data_dicts_train
@@ -49,8 +49,14 @@ def preprocess_data(args, base_transform):
                 pass
 
 
-def _make_loader(args, data, transforms, collate_fn, batch_size):
-    dataset = Dataset(data=data, transform=transforms)
+def _make_loader(args, data, transforms, collate_fn, batch_size, device: torch.device):
+    _, kvikio_present = optional_import('kvikio')
+    if device.type == "cuda" and kvikio_present:
+        dataset = GDSDataset(data=data, transform=transforms, cache_dir=args.preprocessed_output, device=device.index,
+                             pickle_protocol=5)
+    else:
+        dataset = PersistentDataset(data=data, transform=transforms, cache_dir=args.preprocessed_output, pickle_protocol=5)
+
     sampler = DistributedSampler(dataset=dataset, even_divisible=True,
                                  shuffle=args.shuffle) if args.dist else None
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=args.shuffle and sampler is None,
@@ -60,14 +66,14 @@ def _make_loader(args, data, transforms, collate_fn, batch_size):
     return loader
 
 
-def get_loader(args, transforms, val_transforms, collate_fn=None):
-    data_dicts_train = get_train_data(args.data_txt_path, args.preprocessed_output)
+def get_loader(args, transforms, val_transforms, device: torch.device, collate_fn=None):
+    data_dicts_train = get_train_data(args.data_txt_path, args.data_root_path)
     train_data, val_data = random_split(
         Dataset(data_dicts_train),
         [args.train_val_split, 1 - args.train_val_split]
     )
 
-    train_loader = _make_loader(args, train_data, transforms, collate_fn, args.batch_size)
-    val_loader = _make_loader(args, val_data, val_transforms, collate_fn, args.val_batch_size)
+    train_loader = _make_loader(args, train_data, transforms, collate_fn, args.batch_size, device)
+    val_loader = _make_loader(args, val_data, val_transforms, collate_fn, args.val_batch_size, device)
 
     return train_loader, val_loader
